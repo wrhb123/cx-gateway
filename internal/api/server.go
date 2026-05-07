@@ -131,6 +131,7 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels", s.handleChannels)
 	mux.HandleFunc("/api/channels/", s.handleChannelByID)
 	mux.HandleFunc("/api/routes", s.handleRoutes)
+	mux.HandleFunc("/api/routes/", s.handleRouteByID)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/reload", s.handleReload)
 }
@@ -144,6 +145,9 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if channels == nil {
+			channels = []models.Channel{}
+		}
 		json.NewEncoder(w).Encode(channels)
 
 	case http.MethodPost:
@@ -151,6 +155,15 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&ch); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if ch.MaxRetries == 0 {
+			ch.MaxRetries = 3
+		}
+		if ch.Timeout == 0 {
+			ch.Timeout = 120
+		}
+		if ch.Weight == 0 {
+			ch.Weight = 1
 		}
 		id, err := s.db.CreateChannel(&ch)
 		if err != nil {
@@ -227,6 +240,9 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if routes == nil {
+			routes = []models.ModelRoute{}
+		}
 		json.NewEncoder(w).Encode(routes)
 
 	case http.MethodPost:
@@ -250,6 +266,30 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRouteByID 处理单个路由规则的删除
+func (s *Server) handleRouteByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/routes/")
+	if idStr == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.DeleteRoute(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.modelRtr.Reload()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleStats 返回所有渠道的状态信息
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	channels, _ := s.db.ListChannels()
@@ -262,6 +302,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			"state":        s.failover.GetState(ch.ID),
 			"enabled":      ch.Enabled,
 		})
+	}
+	if stats == nil {
+		stats = []map[string]interface{}{}
 	}
 	json.NewEncoder(w).Encode(stats)
 }

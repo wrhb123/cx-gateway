@@ -204,7 +204,7 @@ func (db *Database) CreateRoute(route *models.ModelRoute) (int64, error) {
 
 // ListRoutes 列出所有已启用的路由规则
 func (db *Database) ListRoutes() ([]models.ModelRoute, error) {
-	rows, err := db.Conn.Query("SELECT id, pattern, channel_ids, load_balance, priority, enabled FROM model_routes WHERE enabled=1 ORDER BY priority DESC")
+	rows, err := db.Conn.Query("SELECT id, pattern, channel_ids, load_balance, priority, enabled FROM model_routes ORDER BY priority DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +221,12 @@ func (db *Database) ListRoutes() ([]models.ModelRoute, error) {
 		routes = append(routes, r)
 	}
 	return routes, nil
+}
+
+// DeleteRoute 删除路由规则
+func (db *Database) DeleteRoute(id int64) error {
+	_, err := db.Conn.Exec("DELETE FROM model_routes WHERE id=?", id)
+	return err
 }
 
 // parseIDs 将逗号分隔的 ID 字符串解析为 int64 切片
