@@ -68,6 +68,7 @@ type Config struct {
 	AdminPort      int    `json:"admin_port"`
 	AdminUsername  string `json:"admin_username"`
 	AdminPassword  string `json:"admin_password"`
+	ProxyAPIKey    string `json:"proxy_api_key"`
 	DatabasePath   string `json:"database_path"`
 	LogLevel       string `json:"log_level"`
 	MaxConcurrent  int    `json:"max_concurrent"`

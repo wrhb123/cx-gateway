@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"ai-proxy-gateway/internal/auth"
 	"ai-proxy-gateway/internal/channel"
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
@@ -33,7 +35,14 @@ func (h *mockProxyHandler) ProxyRequest(w http.ResponseWriter, r *http.Request, 
 	})
 }
 
-func newTestServer(t *testing.T) (*Server, func()) {
+type testServer struct {
+	srv       *Server
+	authMgr   *auth.Manager
+	authToken string
+	cleanup   func()
+}
+
+func newTestServer(t *testing.T) *testServer {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -46,22 +55,47 @@ func newTestServer(t *testing.T) (*Server, func()) {
 	fo := failover.NewFailoverManager(5, 60)
 	modelRtr := mr.New(database)
 	proxyHdl := &mockProxyHandler{channelMgr: chMgr, failover: fo, modelRtr: modelRtr}
+	authMgr := auth.New("admin", "admin", 24*time.Hour)
 
-	srv := New(database, chMgr, fo, modelRtr, proxyHdl)
-
-	cleanup := func() {
-		database.Close()
-		os.Remove(dbPath)
+	token, err := authMgr.Login("admin", "admin")
+	if err != nil {
+		t.Fatalf("failed to login: %v", err)
 	}
-	return srv, cleanup
+
+	srv := New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, "")
+
+	return &testServer{
+		srv:       srv,
+		authMgr:   authMgr,
+		authToken: token,
+		cleanup: func() {
+			database.Close()
+			os.Remove(dbPath)
+		},
+	}
 }
 
+func (ts *testServer) newAdminRequest(method, url, body string) *http.Request {
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{
+		Name:     "admin_session",
+		Value:    ts.authToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return req
+}
+
+// ============ Proxy Route Tests ============
+
 func TestHandleFallback(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -79,11 +113,11 @@ func TestHandleFallback(t *testing.T) {
 }
 
 func TestHandleListModels(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -101,11 +135,11 @@ func TestHandleListModels(t *testing.T) {
 }
 
 func TestHandleChatCompletionsInvalidMethod(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
 	rec := httptest.NewRecorder()
@@ -117,11 +151,11 @@ func TestHandleChatCompletionsInvalidMethod(t *testing.T) {
 }
 
 func TestHandleChatCompletionsInvalidJSON(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	body := strings.NewReader("not json")
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -134,11 +168,11 @@ func TestHandleChatCompletionsInvalidJSON(t *testing.T) {
 }
 
 func TestHandleChatCompletionsMissingModel(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	body := strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -151,11 +185,11 @@ func TestHandleChatCompletionsMissingModel(t *testing.T) {
 }
 
 func TestHandleChatCompletionsSuccess(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	body := strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
@@ -174,11 +208,11 @@ func TestHandleChatCompletionsSuccess(t *testing.T) {
 }
 
 func TestHandleImageGenerationInvalidMethod(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
+	ts.srv.RegisterProxyRoutes(proxyMux)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/images/generations", nil)
 	rec := httptest.NewRecorder()
@@ -189,15 +223,137 @@ func TestHandleImageGenerationInvalidMethod(t *testing.T) {
 	}
 }
 
-// Admin API tests
-func TestHandleChannelsEmpty(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+// ============ Admin Auth Tests ============
+
+func TestAuthLogin(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		strings.NewReader(`{"username":"admin","password":"admin"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["username"] != "admin" {
+		t.Errorf("username = %q, want 'admin'", resp["username"])
+	}
+}
+
+func TestAuthLoginInvalid(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
+
+	adminMux := http.NewServeMux()
+	ts.srv.RegisterAdminRoutes(adminMux)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		strings.NewReader(`{"username":"admin","password":"wrong"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuthMe(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
+
+	adminMux := http.NewServeMux()
+	ts.srv.RegisterAdminRoutes(adminMux)
+
+	req := ts.newAdminRequest(http.MethodGet, "/api/auth/me", "")
+	rec := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["username"] != "admin" {
+		t.Errorf("username = %q, want 'admin'", resp["username"])
+	}
+}
+
+func TestAuthRequired(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
+
+	adminMux := http.NewServeMux()
+	ts.srv.RegisterAdminRoutes(adminMux)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/channels", nil)
+	rec := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d (unauthorized)", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuthLogout(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
+
+	adminMux := http.NewServeMux()
+	ts.srv.RegisterAdminRoutes(adminMux)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{
+		Name:  "admin_session",
+		Value: ts.authToken,
+	})
+	rec := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// After logout, the token should be invalid
+	req2 := ts.newAdminRequest(http.MethodGet, "/api/auth/me", "")
+	// Manually replace the cookie with the now-invalidated token
+	req2.Header.Del("Cookie")
+	req2.AddCookie(&http.Cookie{
+		Name:     "admin_session",
+		Value:    ts.authToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	rec2 := httptest.NewRecorder()
+	adminMux.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusUnauthorized {
+		t.Errorf("after logout, status = %d, want %d", rec2.Code, http.StatusUnauthorized)
+	}
+}
+
+// ============ Admin API Tests ============
+
+func TestHandleChannelsEmpty(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.cleanup()
+
+	adminMux := http.NewServeMux()
+	ts.srv.RegisterAdminRoutes(adminMux)
+
+	req := ts.newAdminRequest(http.MethodGet, "/api/channels", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -213,15 +369,14 @@ func TestHandleChannelsEmpty(t *testing.T) {
 }
 
 func TestHandleCreateChannel(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
 	chData := `{"name":"Test Channel","type":"openai_chat","base_url":"https://api.openai.com","api_key":"sk-test","model":"gpt-4o","priority":10,"weight":1,"enabled":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/channels", strings.NewReader(chData))
-	req.Header.Set("Content-Type", "application/json")
+	req := ts.newAdminRequest(http.MethodPost, "/api/channels", chData)
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -237,24 +392,18 @@ func TestHandleCreateChannel(t *testing.T) {
 }
 
 func TestHandleGetChannelByID(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	// Create a channel first
 	chData := `{"name":"Get Test","type":"openai_chat","base_url":"https://api.openai.com","api_key":"sk-test","model":"gpt-4o","enabled":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/channels", strings.NewReader(chData))
-	req.Header.Set("Content-Type", "application/json")
+	req := ts.newAdminRequest(http.MethodPost, "/api/channels", chData)
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
-	var created models.Channel
-	json.NewDecoder(rec.Body).Decode(&created)
-
-	// Get the channel
-	req = httptest.NewRequest(http.MethodGet, "/api/channels/1", nil)
+	req = ts.newAdminRequest(http.MethodGet, "/api/channels/1", "")
 	rec = httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -270,21 +419,18 @@ func TestHandleGetChannelByID(t *testing.T) {
 }
 
 func TestHandleDeleteChannel(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	// Create a channel
 	chData := `{"name":"Delete Test","type":"openai_chat","base_url":"https://api.openai.com","api_key":"sk-test","model":"gpt-4o","enabled":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/channels", strings.NewReader(chData))
-	req.Header.Set("Content-Type", "application/json")
+	req := ts.newAdminRequest(http.MethodPost, "/api/channels", chData)
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
-	// Delete the channel
-	req = httptest.NewRequest(http.MethodDelete, "/api/channels/1", nil)
+	req = ts.newAdminRequest(http.MethodDelete, "/api/channels/1", "")
 	rec = httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -294,23 +440,19 @@ func TestHandleDeleteChannel(t *testing.T) {
 }
 
 func TestHandleUpdateChannel(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	// Create a channel
 	chData := `{"name":"Original","type":"openai_chat","base_url":"https://api.openai.com","api_key":"sk-test","model":"gpt-4o","enabled":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/channels", strings.NewReader(chData))
-	req.Header.Set("Content-Type", "application/json")
+	req := ts.newAdminRequest(http.MethodPost, "/api/channels", chData)
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
-	// Update the channel
 	updateData := `{"id":1,"name":"Updated","type":"openai_chat","base_url":"https://api.openai.com","api_key":"sk-new","model":"gpt-4","enabled":true,"priority":0,"weight":1,"max_retries":3,"timeout":120}`
-	req = httptest.NewRequest(http.MethodPut, "/api/channels/1", strings.NewReader(updateData))
-	req.Header.Set("Content-Type", "application/json")
+	req = ts.newAdminRequest(http.MethodPut, "/api/channels/1", updateData)
 	rec = httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -326,13 +468,13 @@ func TestHandleUpdateChannel(t *testing.T) {
 }
 
 func TestHandleChannelByIDNotFound(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/999", nil)
+	req := ts.newAdminRequest(http.MethodGet, "/api/channels/999", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -342,13 +484,13 @@ func TestHandleChannelByIDNotFound(t *testing.T) {
 }
 
 func TestHandleChannelByIDInvalidID(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/abc", nil)
+	req := ts.newAdminRequest(http.MethodGet, "/api/channels/abc", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -358,15 +500,14 @@ func TestHandleChannelByIDInvalidID(t *testing.T) {
 }
 
 func TestHandleCreateRoute(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
 	routeData := `{"pattern":"gpt-*","channel_ids":[1,2],"load_balance":"round_robin","priority":10,"enabled":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/routes", strings.NewReader(routeData))
-	req.Header.Set("Content-Type", "application/json")
+	req := ts.newAdminRequest(http.MethodPost, "/api/routes", routeData)
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -382,13 +523,13 @@ func TestHandleCreateRoute(t *testing.T) {
 }
 
 func TestHandleListRoutesEmpty(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/routes", nil)
+	req := ts.newAdminRequest(http.MethodGet, "/api/routes", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -404,13 +545,13 @@ func TestHandleListRoutesEmpty(t *testing.T) {
 }
 
 func TestHandleStats(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	req := ts.newAdminRequest(http.MethodGet, "/api/stats", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -426,13 +567,13 @@ func TestHandleStats(t *testing.T) {
 }
 
 func TestHandleReload(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/reload", nil)
+	req := ts.newAdminRequest(http.MethodPost, "/api/reload", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
@@ -448,17 +589,90 @@ func TestHandleReload(t *testing.T) {
 }
 
 func TestHandleReloadInvalidMethod(t *testing.T) {
-	srv, cleanup := newTestServer(t)
-	defer cleanup()
+	ts := newTestServer(t)
+	defer ts.cleanup()
 
 	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
+	ts.srv.RegisterAdminRoutes(adminMux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/reload", nil)
+	req := ts.newAdminRequest(http.MethodGet, "/api/reload", "")
 	rec := httptest.NewRecorder()
 	adminMux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+// ============ Proxy API Key Auth Tests ============
+
+func TestProxyAPIKeyRequired(t *testing.T) {
+	ts := newTestServer(t)
+	ts.srv.proxyAPIKey = "test-secret-key"
+	defer ts.cleanup()
+
+	proxyMux := http.NewServeMux()
+	ts.srv.RegisterProxyRoutes(proxyMux)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	proxyMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestProxyAPIKeyValid(t *testing.T) {
+	ts := newTestServer(t)
+	ts.srv.proxyAPIKey = "test-secret-key"
+	defer ts.cleanup()
+
+	proxyMux := http.NewServeMux()
+	ts.srv.RegisterProxyRoutes(proxyMux)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-key")
+	rec := httptest.NewRecorder()
+	proxyMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestProxyAPIKeyInvalid(t *testing.T) {
+	ts := newTestServer(t)
+	ts.srv.proxyAPIKey = "test-secret-key"
+	defer ts.cleanup()
+
+	proxyMux := http.NewServeMux()
+	ts.srv.RegisterProxyRoutes(proxyMux)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer wrong-key")
+	rec := httptest.NewRecorder()
+	proxyMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestProxyAPIKeyViaHeader(t *testing.T) {
+	ts := newTestServer(t)
+	ts.srv.proxyAPIKey = "test-secret-key"
+	defer ts.cleanup()
+
+	proxyMux := http.NewServeMux()
+	ts.srv.RegisterProxyRoutes(proxyMux)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-API-Key", "test-secret-key")
+	rec := httptest.NewRecorder()
+	proxyMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"ai-proxy-gateway/internal/api"
+	"ai-proxy-gateway/internal/auth"
 	"ai-proxy-gateway/internal/channel"
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
@@ -38,6 +40,15 @@ func main() {
 	if dbPath := os.Getenv("DATABASE_PATH"); dbPath != "" {
 		cfg.DatabasePath = dbPath
 	}
+	if user := os.Getenv("ADMIN_USERNAME"); user != "" {
+		cfg.AdminUsername = user
+	}
+	if pass := os.Getenv("ADMIN_PASSWORD"); pass != "" {
+		cfg.AdminPassword = pass
+	}
+	if key := os.Getenv("PROXY_API_KEY"); key != "" {
+		cfg.ProxyAPIKey = key
+	}
 
 	database, err := db.New(cfg.DatabasePath)
 	if err != nil {
@@ -50,7 +61,9 @@ func main() {
 	modelRtr := mr.New(database)
 	proxyHdl := proxy.New(chMgr, fo, modelRtr)
 
-	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl)
+	authMgr := auth.New(cfg.AdminUsername, cfg.AdminPassword, 24*time.Hour)
+
+	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey)
 
 	// 注册代理 API 路由
 	proxyMux := http.NewServeMux()
@@ -77,15 +90,29 @@ func main() {
 
 	go func() {
 		log.Printf("Proxy server starting on :%d", cfg.ServerPort)
+		if cfg.ProxyAPIKey != "" {
+			log.Printf("Proxy API key authentication enabled")
+		} else {
+			log.Printf("WARNING: Proxy API key not set, all requests will be accepted")
+		}
 		if err := proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Proxy server failed: %v", err)
 		}
 	}()
 
 	go func() {
-		log.Printf("Admin panel starting on :%d", cfg.AdminPort)
+		log.Printf("Admin panel starting on :%d (user: %s)", cfg.AdminPort, cfg.AdminUsername)
 		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Admin server failed: %v", err)
+		}
+	}()
+
+	// 定时清理过期会话
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			authMgr.CleanupExpired()
 		}
 	}()
 

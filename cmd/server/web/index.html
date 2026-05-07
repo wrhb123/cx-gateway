@@ -155,6 +155,120 @@
             background: var(--bg-sidebar-hover);
         }
 
+        .sidebar-footer .logout-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            color: #ef4444;
+        }
+
+        .sidebar-footer .logout-btn:hover {
+            background: var(--bg-sidebar-hover);
+        }
+
+        .login-page {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .login-card .logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .login-card .logo .logo-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            color: white;
+            margin-bottom: 12px;
+        }
+
+        .login-card .logo h1 {
+            font-size: 22px;
+            color: #1a1a2e;
+        }
+
+        .login-card .logo p {
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .login-card .form-group {
+            margin-bottom: 20px;
+        }
+
+        .login-card .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 14px;
+            color: #374151;
+        }
+
+        .login-card .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .login-card .form-group input:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+        }
+
+        .login-card .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .login-card .login-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .login-card .error-msg {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
         .main {
             flex: 1;
             margin-left: var(--sidebar-width);
@@ -543,6 +657,30 @@
 </head>
 <body>
 <div id="app">
+    <div v-if="!isLoggedIn" class="login-page">
+        <div class="login-card">
+            <div class="logo">
+                <div class="logo-icon">&#9889;</div>
+                <h1>AI Proxy Gateway</h1>
+                <p>管理控制台登录</p>
+            </div>
+            <div v-if="loginError" class="error-msg">{{ loginError }}</div>
+            <form @submit.prevent="doLogin">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input v-model="loginForm.username" required placeholder="请输入用户名" autofocus>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input v-model="loginForm.password" type="password" required placeholder="请输入密码">
+                </div>
+                <button type="submit" class="login-btn" :disabled="loggingIn">
+                    {{ loggingIn ? '登录中...' : '登录' }}
+                </button>
+            </form>
+        </div>
+    </div>
+    <template v-else>
     <aside class="sidebar">
         <div class="sidebar-logo">
             <div class="logo-icon">&#9889;</div>
@@ -577,6 +715,10 @@
             <div class="dark-toggle" @click="toggleDark">
                 <span>{{ isDark ? '&#9728;' : '&#9790;' }}</span>
                 <span>{{ isDark ? '浅色模式' : '深色模式' }}</span>
+            </div>
+            <div class="logout-btn" @click="doLogout">
+                <span>&#128682;</span>
+                <span>退出登录</span>
             </div>
         </div>
     </aside>
@@ -967,6 +1109,7 @@
             {{ t.message }}
         </div>
     </div>
+    </template>
 </div>
 
 <script>
@@ -993,6 +1136,11 @@ createApp({
         const trafficChartType = ref('bar');
         let chartInstance = null;
         let toastId = 0;
+
+        const isLoggedIn = ref(false);
+        const loginForm = reactive({ username: '', password: '' });
+        const loginError = ref('');
+        const loggingIn = ref(false);
 
         const pageTitle = computed(() => {
             const map = { dashboard: '仪表盘', channels: '渠道管理', routes: '模型路由', traffic: '流量统计', logs: '请求日志' };
@@ -1241,10 +1389,62 @@ createApp({
 
         watch(trafficChartType, updateChart);
 
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    isLoggedIn.value = true;
+                    loadData();
+                } else {
+                    isLoggedIn.value = false;
+                }
+            } catch {
+                isLoggedIn.value = false;
+            }
+        }
+
+        async function doLogin() {
+            loggingIn.value = true;
+            loginError.value = '';
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loginForm),
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    loginError.value = data.error || '登录失败';
+                    return;
+                }
+                isLoggedIn.value = true;
+                loginForm.username = '';
+                loginForm.password = '';
+                loadData();
+                toast('登录成功', 'success');
+            } catch (e) {
+                loginError.value = '网络错误';
+            } finally {
+                loggingIn.value = false;
+            }
+        }
+
+        async function doLogout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch {}
+            isLoggedIn.value = false;
+            channels.value = [];
+            routes.value = [];
+            stats.value = [];
+            trafficStats.value = [];
+            toast('已退出登录', 'info');
+        }
+
         onMounted(() => {
             isDark.value = localStorage.getItem('dark') === '1';
             if (isDark.value) document.body.classList.add('dark');
-            loadData();
+            checkAuth();
         });
 
         return {
@@ -1256,7 +1456,8 @@ createApp({
             loadData, loadLogs, showAddChannel, editChannel, toggleChannel, deleteChannel,
             pingChannel, showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
             getChannelName, successRate, formatTime, typeName, typeDot, lbName,
-            toggleDark, toast
+            toggleDark, toast,
+            isLoggedIn, loginForm, loginError, loggingIn, doLogin, doLogout
         };
     }
 }).mount('#app');

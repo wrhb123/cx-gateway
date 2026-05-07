@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"ai-proxy-gateway/internal/auth"
 	"ai-proxy-gateway/internal/channel"
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
@@ -22,30 +24,88 @@ type ProxyHandler interface {
 
 // Server 持有所有 HTTP 处理器
 type Server struct {
-	db         *db.Database
-	channelMgr *channel.Manager
-	failover   *failover.FailoverManager
-	modelRtr   *router.ModelRouter
-	proxyHdl   ProxyHandler
+	db          *db.Database
+	channelMgr  *channel.Manager
+	failover    *failover.FailoverManager
+	modelRtr    *router.ModelRouter
+	proxyHdl    ProxyHandler
+	authMgr     *auth.Manager
+	proxyAPIKey string
 }
 
 // New 创建新的 API 服务器
-func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverManager, mr *router.ModelRouter, ph ProxyHandler) *Server {
+func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverManager, mr *router.ModelRouter, ph ProxyHandler, am *auth.Manager, proxyKey string) *Server {
 	return &Server{
-		db:         database,
-		channelMgr: chMgr,
-		failover:   fo,
-		modelRtr:   mr,
-		proxyHdl:   ph,
+		db:          database,
+		channelMgr:  chMgr,
+		failover:    fo,
+		modelRtr:    mr,
+		proxyHdl:    ph,
+		authMgr:     am,
+		proxyAPIKey: proxyKey,
 	}
 }
 
 // RegisterProxyRoutes 注册代理 API 路由（兼容 OpenAI 格式）
 func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
-	mux.HandleFunc("/v1/images/generations", s.handleImageGeneration)
-	mux.HandleFunc("/v1/models", s.handleListModels)
-	mux.HandleFunc("/", s.handleFallback)
+	mux.HandleFunc("/v1/chat/completions", s.proxyMiddleware(s.handleChatCompletions))
+	mux.HandleFunc("/v1/images/generations", s.proxyMiddleware(s.handleImageGeneration))
+	mux.HandleFunc("/v1/models", s.proxyMiddleware(s.handleListModels))
+	mux.HandleFunc("/", s.proxyMiddleware(s.handleFallback))
+}
+
+// proxyMiddleware 代理 API 鉴权中间件
+func (s *Server) proxyMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.proxyAPIKey == "" {
+			next(w, r)
+			return
+		}
+
+		key := extractAPIKey(r)
+		if key == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "unauthorized",
+				"message": "API key is required. Pass it via Authorization: Bearer <key> or X-API-Key header",
+			})
+			return
+		}
+
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.proxyAPIKey)) != 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "forbidden",
+				"message": "Invalid API key",
+			})
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// extractAPIKey 从请求中提取 API key
+func extractAPIKey(r *http.Request) string {
+	// X-API-Key header
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		return key
+	}
+
+	// Authorization: Bearer <key>
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+
+	// url query param (for SSE streams where headers can't be set)
+	if key := r.URL.Query().Get("api_key"); key != "" {
+		return key
+	}
+
+	return ""
 }
 
 // handleChatCompletions 处理聊天补全请求
@@ -128,15 +188,192 @@ func (s *Server) handleFallback(w http.ResponseWriter, r *http.Request) {
 
 // RegisterAdminRoutes 注册管理 API 路由
 func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/channels", s.handleChannels)
-	mux.HandleFunc("/api/channels/", s.handleChannelByID)
-	mux.HandleFunc("/api/routes", s.handleRoutes)
-	mux.HandleFunc("/api/routes/", s.handleRouteByID)
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/api/stats/traffic", s.handleTrafficStats)
-	mux.HandleFunc("/api/logs", s.handleLogs)
-	mux.HandleFunc("/api/reload", s.handleReload)
-	mux.HandleFunc("/api/channels/{id}/ping", s.handlePingChannel)
+	// 公开端点（无需认证）
+	mux.HandleFunc("/api/auth/login", s.handleLogin)
+	mux.HandleFunc("/api/auth/logout", s.handleLogout)
+
+	// 需要认证的端点
+	mux.HandleFunc("/api/auth/me", s.authMiddleware(s.handleAuthMe))
+	mux.HandleFunc("/api/auth/password", s.authMiddleware(s.handleChangePassword))
+	mux.HandleFunc("/api/channels", s.authMiddleware(s.handleChannels))
+	mux.HandleFunc("/api/channels/", s.authMiddleware(s.handleChannelByID))
+	mux.HandleFunc("/api/routes", s.authMiddleware(s.handleRoutes))
+	mux.HandleFunc("/api/routes/", s.authMiddleware(s.handleRouteByID))
+	mux.HandleFunc("/api/stats", s.authMiddleware(s.handleStats))
+	mux.HandleFunc("/api/stats/traffic", s.authMiddleware(s.handleTrafficStats))
+	mux.HandleFunc("/api/logs", s.authMiddleware(s.handleLogs))
+	mux.HandleFunc("/api/reload", s.authMiddleware(s.handleReload))
+	mux.HandleFunc("/api/channels/{id}/ping", s.authMiddleware(s.handlePingChannel))
+}
+
+// authMiddleware 管理端认证中间件
+func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("admin_session")
+		if err != nil {
+			// 尝试从 Header 获取 token（用于 API 调用）
+			token := r.Header.Get("X-Admin-Token")
+			if token == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":   "unauthorized",
+					"message": "Login required",
+				})
+				return
+			}
+			sess, err := s.authMgr.Validate(token)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":   "unauthorized",
+					"message": err.Error(),
+				})
+				return
+			}
+			r.Header.Set("X-Admin-User", sess.Username)
+			next(w, r)
+			return
+		}
+
+		sess, err := s.authMgr.Validate(cookie.Value)
+		if err != nil {
+			// 清除过期 cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "admin_session",
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+			})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "unauthorized",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		r.Header.Set("X-Admin-User", sess.Username)
+		next(w, r)
+	}
+}
+
+// handleLogin 管理员登录
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "username and password are required"})
+		return
+	}
+
+	token, err := s.authMgr.Login(req.Username, req.Password)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// 设置 httpOnly cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   86400,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":   "ok",
+		"username": req.Username,
+	})
+}
+
+// handleLogout 管理员登出
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cookie, err := r.Cookie("admin_session")
+	if err == nil && cookie.Value != "" {
+		s.authMgr.Logout(cookie.Value)
+	}
+
+	// 清除 cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleAuthMe 返回当前登录用户信息
+func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"username": r.Header.Get("X-Admin-User"),
+	})
+}
+
+// handleChangePassword 修改管理员密码
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	username := r.Header.Get("X-Admin-User")
+	if err := s.authMgr.ChangePassword(username, req.OldPassword, req.NewPassword); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handleChannels 处理渠道列表和创建请求
@@ -334,18 +571,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
-// handleReload 重新加载渠道和路由配置
-func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	s.channelMgr.Reload()
-	s.modelRtr.Reload()
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
-}
-
 // handleTrafficStats 返回流量统计数据
 func (s *Server) handleTrafficStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.db.ListAllChannelStats()
@@ -385,6 +610,18 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(logs)
+}
+
+// handleReload 重新加载渠道和路由配置
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.channelMgr.Reload()
+	s.modelRtr.Reload()
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
 }
 
 // handlePingChannel 测试渠道连通性
