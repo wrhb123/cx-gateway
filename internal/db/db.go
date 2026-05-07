@@ -229,6 +229,20 @@ func (db *Database) DeleteRoute(id int64) error {
 	return err
 }
 
+// UpdateRoute 更新路由规则
+func (db *Database) UpdateRoute(route *models.ModelRoute) error {
+	var ids []string
+	for _, id := range route.ChannelIDs {
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	idsStr := strings.Join(ids, ",")
+	_, err := db.Conn.Exec(`
+		UPDATE model_routes SET pattern=?, channel_ids=?, load_balance=?, priority=?, enabled=?
+		WHERE id=?
+	`, route.Pattern, idsStr, route.LoadBalance, route.Priority, route.Enabled, route.ID)
+	return err
+}
+
 // parseIDs 将逗号分隔的 ID 字符串解析为 int64 切片
 func parseIDs(s string) []int64 {
 	if s == "" {
@@ -291,6 +305,157 @@ func (db *Database) LogRequest(log *models.RequestLog) error {
 		INSERT INTO request_logs (request_id, model, channel_id, channel_name, status, latency_ms)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency)
+	return err
+}
+
+// ListAllChannelStats 列出所有渠道的统计数据
+func (db *Database) ListAllChannelStats() ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT cs.channel_id, c.name, c.type, c.enabled,
+			cs.total_requests, cs.success_count, cs.failure_count,
+			cs.avg_latency_ms, cs.is_healthy, cs.last_error, cs.last_checked
+		FROM channel_stats cs
+		LEFT JOIN channels c ON cs.channel_id = c.id
+		ORDER BY cs.total_requests DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var channelID int64
+		var name, chType, lastError sql.NullString
+		var enabled, totalReqs, successCount, failureCount, avgLatency, isHealthy int64
+		var lastChecked sql.NullString
+		if err := rows.Scan(&channelID, &name, &chType, &enabled,
+			&totalReqs, &successCount, &failureCount, &avgLatency,
+			&isHealthy, &lastError, &lastChecked); err != nil {
+			return nil, err
+		}
+		n := ""
+		if name.Valid {
+			n = name.String
+		}
+		t := ""
+		if chType.Valid {
+			t = chType.String
+		}
+		e := ""
+		if lastError.Valid {
+			e = lastError.String
+		}
+		lc := ""
+		if lastChecked.Valid {
+			lc = lastChecked.String
+		}
+		results = append(results, map[string]interface{}{
+			"channel_id":     channelID,
+			"channel_name":   n,
+			"type":           t,
+			"enabled":        enabled == 1,
+			"total_requests": totalReqs,
+			"success_count":  successCount,
+			"failure_count":  failureCount,
+			"avg_latency_ms": avgLatency,
+			"is_healthy":     isHealthy == 1,
+			"last_error":     e,
+			"last_checked":   lc,
+		})
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	return results, nil
+}
+
+// GetRequestLogs 获取请求日志（分页）
+func (db *Database) GetRequestLogs(limit, offset int) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT request_id, model, channel_id, channel_name, status, latency_ms, created_at
+		FROM request_logs ORDER BY created_at DESC LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var reqID, model, chName, createdAt string
+		var chID, status, latency sql.NullInt64
+		if err := rows.Scan(&reqID, &model, &chID, &chName, &status, &latency, &createdAt); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"request_id":   reqID,
+			"model":        model,
+			"channel_id":   chID,
+			"channel_name": chName,
+			"status":       status,
+			"latency_ms":   latency,
+			"created_at":   createdAt,
+		})
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	return results, nil
+}
+
+// GetRecentLogs 获取最近的请求日志（按小时分组统计）
+func (db *Database) GetRecentLogs(hours int) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT
+			strftime('%Y-%m-%d %H:00', created_at) as hour,
+			COUNT(*) as total,
+			SUM(CASE WHEN status >= 200 AND status < 400 THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) as failure,
+			CAST(AVG(latency_ms) AS INTEGER) as avg_latency
+		FROM request_logs
+		WHERE created_at >= datetime('now', ?)
+		GROUP BY hour ORDER BY hour ASC
+	`, "-"+strconv.Itoa(hours)+" hours")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var hour string
+		var total, success, failure int64
+		var avgLatency sql.NullInt64
+		if err := rows.Scan(&hour, &total, &success, &failure, &avgLatency); err != nil {
+			return nil, err
+		}
+		lat := int64(0)
+		if avgLatency.Valid {
+			lat = avgLatency.Int64
+		}
+		results = append(results, map[string]interface{}{
+			"hour":       hour,
+			"total":      total,
+			"success":    success,
+			"failure":    failure,
+			"avg_latency": lat,
+		})
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	return results, nil
+}
+
+// ResetChannelStats 重置渠道统计数据
+func (db *Database) ResetChannelStats(channelID int64) error {
+	_, err := db.Conn.Exec(`
+		UPDATE channel_stats SET
+			total_requests=0, success_count=0, failure_count=0,
+			avg_latency_ms=0, is_healthy=1, last_error='', last_checked=CURRENT_TIMESTAMP
+		WHERE channel_id=?
+	`, channelID)
 	return err
 }
 

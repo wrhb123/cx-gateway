@@ -5,302 +5,1259 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Proxy Gateway - Admin</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <style>
+        :root {
+            --bg: #f5f7fa;
+            --bg-card: #ffffff;
+            --bg-sidebar: #1a1a2e;
+            --bg-sidebar-hover: #16213e;
+            --bg-sidebar-active: #0f3460;
+            --text: #1a1a2e;
+            --text-secondary: #64748b;
+            --text-sidebar: #a0aec0;
+            --text-sidebar-active: #ffffff;
+            --border: #e2e8f0;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+            --shadow-lg: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --sidebar-width: 220px;
+        }
+
+        .dark {
+            --bg: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #0f172a;
+            --bg-sidebar-hover: #1e293b;
+            --bg-sidebar-active: #334155;
+            --text: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-sidebar: #94a3b8;
+            --border: #334155;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3);
+            --shadow-lg: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; margin-bottom: 20px; border-radius: 12px; }
-        .header h1 { font-size: 24px; margin-bottom: 5px; }
-        .header p { opacity: 0.8; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .tab { padding: 10px 20px; border: none; background: white; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
-        .tab:hover { background: #e8e8e8; }
-        .tab.active { background: #667eea; color: white; }
-        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .card h2 { font-size: 18px; margin-bottom: 15px; color: #444; }
-        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-primary:hover { background: #5a6fd6; }
-        .btn-danger { background: #e74c3c; color: white; }
-        .btn-danger:hover { background: #c0392b; }
-        .btn-success { background: #27ae60; color: white; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            min-height: 100vh;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-sidebar);
+            color: var(--text-sidebar);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 100;
+            transition: background 0.3s;
+        }
+
+        .sidebar-logo {
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sidebar-logo .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: white;
+        }
+
+        .sidebar-logo .logo-text {
+            color: white;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .sidebar-logo .logo-sub {
+            color: var(--text-sidebar);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 12px 8px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-sidebar-hover);
+            color: var(--text-sidebar-active);
+        }
+
+        .nav-item.active {
+            background: var(--bg-sidebar-active);
+            color: var(--text-sidebar-active);
+            font-weight: 600;
+        }
+
+        .nav-item .nav-icon {
+            width: 20px;
+            text-align: center;
+            font-size: 16px;
+        }
+
+        .sidebar-footer {
+            padding: 16px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sidebar-footer .dark-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+        }
+
+        .sidebar-footer .dark-toggle:hover {
+            background: var(--bg-sidebar-hover);
+        }
+
+        .main {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: 24px;
+            max-width: calc(100vw - var(--sidebar-width));
+        }
+
+        .page-header {
+            margin-bottom: 24px;
+        }
+
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .page-header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-card .icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
+
+        .stat-card .icon.blue { background: #eff6ff; color: #3b82f6; }
+        .stat-card .icon.green { background: #f0fdf4; color: #22c55e; }
+        .stat-card .icon.purple { background: #faf5ff; color: #a855f7; }
+        .stat-card .icon.orange { background: #fff7ed; color: #f97316; }
+
+        .dark .stat-card .icon.blue { background: #1e3a5f; }
+        .dark .stat-card .icon.green { background: #14532d; }
+        .dark .stat-card .icon.purple { background: #3b0764; }
+        .dark .stat-card .icon.orange { background: #431407; }
+
+        .stat-card .info .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .stat-card .info .value {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-ghost { background: transparent; color: var(--text-secondary); }
+        .btn-ghost:hover { background: var(--border); }
         .btn-sm { padding: 5px 10px; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; font-weight: 600; color: #666; font-size: 13px; }
-        td { font-size: 14px; }
-        .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .badge-success { background: #d4edda; color: #155724; }
-        .badge-danger { background: #f8d7da; color: #721c24; }
-        .badge-warning { background: #fff3cd; color: #856404; }
-        .badge-info { background: #d1ecf1; color: #0c5460; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 13px; color: #555; }
-        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal { background: white; border-radius: 12px; padding: 25px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .modal-header h3 { font-size: 18px; }
-        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
-        .actions { display: flex; gap: 8px; }
-        .empty { text-align: center; padding: 40px; color: #999; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        tr:hover td {
+            background: var(--bg);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success { background: #dcfce7; color: #166534; }
+        .badge-danger { background: #fef2f2; color: #991b1b; }
+        .badge-warning { background: #fefce8; color: #854d0e; }
+        .badge-info { background: #eff6ff; color: #1e40af; }
+        .badge-gray { background: #f1f5f9; color: #475569; }
+
+        .dark .badge-success { background: #14532d; color: #86efac; }
+        .dark .badge-danger { background: #450a0a; color: #fca5a5; }
+        .dark .badge-warning { background: #451a03; color: #fde68a; }
+        .dark .badge-info { background: #1e3a5f; color: #93c5fd; }
+        .dark .badge-gray { background: #334155; color: #cbd5e1; }
+
+        .actions { display: flex; gap: 6px; }
+
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty .empty-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            width: 90%;
+            max-width: 640px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px rgba(0,0,0,0.15);
+            animation: slideUp 0.2s;
+        }
+
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 { font-size: 18px; font-weight: 600; }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover { background: var(--border); }
+
+        .modal-body { padding: 24px; }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            background: var(--bg);
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            color: white;
+            font-size: 14px;
+            box-shadow: var(--shadow-lg);
+            animation: slideIn 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 280px;
+        }
+
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .toast-success { background: var(--success); }
+        .toast-error { background: var(--danger); }
+        .toast-warning { background: var(--warning); }
+        .toast-info { background: var(--info); }
+
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            cursor: pointer;
+        }
+
+        .toggle input { opacity: 0; width: 0; height: 0; }
+
+        .toggle .slider {
+            position: absolute;
+            inset: 0;
+            background: #cbd5e1;
+            border-radius: 22px;
+            transition: 0.2s;
+        }
+
+        .toggle .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+
+        .toggle input:checked + .slider { background: var(--success); }
+        .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .code {
+            font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .truncate {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .channel-type-icon {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .channel-type-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .dot-openai { background: #10a37f; }
+        .dot-claude { background: #d97706; }
+        .dot-gemini { background: #4285f4; }
+        .dot-codex { background: #8b5cf6; }
+
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main { margin-left: 0; }
+            .stat-cards { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
 <body>
 <div id="app">
-    <div class="container">
-        <div class="header">
-            <h1>AI Proxy Gateway</h1>
-            <p>API 代理与协议转换网关管理控制台</p>
-        </div>
-
-        <div class="tabs">
-            <button class="tab" :class="{active: activeTab==='channels'}" @click="activeTab='channels'">渠道管理</button>
-            <button class="tab" :class="{active: activeTab==='routes'}" @click="activeTab='routes'">模型路由</button>
-            <button class="tab" :class="{active: activeTab==='stats'}" @click="activeTab='stats'">状态监控</button>
-        </div>
-
-        <div v-if="activeTab==='channels'" class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-                <h2>渠道列表</h2>
-                <button class="btn btn-primary" @click="showAddChannel">添加渠道</button>
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <div class="logo-icon">&#9889;</div>
+            <div>
+                <div class="logo-text">AI Proxy Gateway</div>
+                <div class="logo-sub">管理控制台</div>
             </div>
-            <table v-if="channels.length">
-                <thead>
-                    <tr>
-                        <th>ID</th><th>名称</th><th>类型</th><th>模型</th><th>优先级</th><th>权重</th><th>状态</th><th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="ch in channels" :key="ch.id">
-                        <td>{{ch.id}}</td>
-                        <td>{{ch.name}}</td>
-                        <td><span class="badge badge-info">{{ch.type}}</span></td>
-                        <td>{{ch.model}}</td>
-                        <td>{{ch.priority}}</td>
-                        <td>{{ch.weight}}</td>
-                        <td><span class="badge" :class="ch.enabled?'badge-success':'badge-danger'">{{ch.enabled?'启用':'禁用'}}</span></td>
-                        <td class="actions">
-                            <button class="btn btn-sm btn-primary" @click="editChannel(ch)">编辑</button>
-                            <button class="btn btn-sm btn-danger" @click="deleteChannel(ch.id)">删除</button>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            <div v-else class="empty">暂无渠道，点击"添加渠道"开始配置</div>
         </div>
-
-        <div v-if="activeTab==='routes'" class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-                <h2>路由规则</h2>
-                <button class="btn btn-primary" @click="showAddRoute">添加路由</button>
+        <nav class="sidebar-nav">
+            <div class="nav-item" :class="{active: activeTab==='dashboard'}" @click="activeTab='dashboard'">
+                <span class="nav-icon">&#9636;</span>
+                <span>仪表盘</span>
             </div>
-            <table v-if="routes.length">
-                <thead>
-                    <tr>
-                        <th>ID</th><th>匹配模式</th><th>渠道IDs</th><th>负载均衡</th><th>优先级</th><th>状态</th><th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="r in routes" :key="r.id">
-                        <td>{{r.id}}</td>
-                        <td><code>{{r.pattern}}</code></td>
-                        <td>{{r.channel_ids}}</td>
-                        <td><span class="badge badge-info">{{r.load_balance}}</span></td>
-                        <td>{{r.priority}}</td>
-                        <td><span class="badge" :class="r.enabled?'badge-success':'badge-danger'">{{r.enabled?'启用':'禁用'}}</span></td>
-                        <td class="actions">
-                            <button class="btn btn-sm btn-danger" @click="deleteRoute(r.id)">删除</button>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            <div v-else class="empty">暂无路由规则</div>
+            <div class="nav-item" :class="{active: activeTab==='channels'}" @click="activeTab='channels'">
+                <span class="nav-icon">&#9776;</span>
+                <span>渠道管理</span>
+            </div>
+            <div class="nav-item" :class="{active: activeTab==='routes'}" @click="activeTab='routes'">
+                <span class="nav-icon">&#9881;</span>
+                <span>模型路由</span>
+            </div>
+            <div class="nav-item" :class="{active: activeTab==='traffic'}" @click="activeTab='traffic'">
+                <span class="nav-icon">&#9733;</span>
+                <span>流量统计</span>
+            </div>
+            <div class="nav-item" :class="{active: activeTab==='logs'}" @click="activeTab='logs'">
+                <span class="nav-icon">&#128203;</span>
+                <span>请求日志</span>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="dark-toggle" @click="toggleDark">
+                <span>{{ isDark ? '&#9728;' : '&#9790;' }}</span>
+                <span>{{ isDark ? '浅色模式' : '深色模式' }}</span>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="page-header">
+            <h1>{{ pageTitle }}</h1>
+            <p>{{ pageDesc }}</p>
         </div>
 
-        <div v-if="activeTab==='stats'" class="card">
-            <h2>状态监控</h2>
-            <table v-if="stats.length">
-                <thead>
-                    <tr>
-                        <th>渠道ID</th><th>渠道名称</th><th>类型</th><th>状态</th><th>熔断器</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="s in stats" :key="s.channel_id">
-                        <td>{{s.channel_id}}</td>
-                        <td>{{s.channel_name}}</td>
-                        <td><span class="badge badge-info">{{s.type}}</span></td>
-                        <td><span class="badge" :class="s.enabled?'badge-success':'badge-danger'">{{s.enabled?'运行中':'已禁用'}}</span></td>
-                        <td><span class="badge" :class="s.state==='closed'?'badge-success':s.state==='open'?'badge-danger':'badge-warning'">{{s.state}}</span></td>
-                    </tr>
-                </tbody>
-            </table>
-            <div v-else class="empty">暂无数据</div>
+        <div v-if="activeTab==='dashboard'">
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="icon blue">&#9776;</div>
+                    <div class="info">
+                        <div class="label">总渠道数</div>
+                        <div class="value">{{ channels.length }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon green">&#10003;</div>
+                    <div class="info">
+                        <div class="label">已启用</div>
+                        <div class="value">{{ activeChannels }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon purple">&#9881;</div>
+                    <div class="info">
+                        <div class="label">路由规则</div>
+                        <div class="value">{{ routes.length }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon orange">&#9889;</div>
+                    <div class="info">
+                        <div class="label">总请求数</div>
+                        <div class="value">{{ totalRequests }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>渠道状态</h2>
+                    </div>
+                    <div class="card-body" v-if="stats.length">
+                        <div v-for="s in stats" :key="s.channel_id" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
+                            <div>
+                                <strong>{{ s.channel_name }}</strong>
+                                <span class="badge badge-info" style="margin-left:8px;">{{ s.type }}</span>
+                            </div>
+                            <span class="badge" :class="s.state==='closed'?'badge-success':s.state==='open'?'badge-danger':'badge-warning'">
+                                {{ s.state === 'closed' ? '正常' : s.state === 'open' ? '熔断' : '半开' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div v-else class="empty">暂无数据</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>最近请求</h2>
+                        <button class="btn btn-ghost btn-sm" @click="activeTab='logs'">查看全部</button>
+                    </div>
+                    <div class="card-body" v-if="recentLogs.length">
+                        <div v-for="log in recentLogs" :key="log.request_id" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+                            <div>
+                                <span class="code">{{ log.model }}</span>
+                                <span style="color:var(--text-secondary);margin-left:8px;">{{ log.channel_name }}</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <span class="badge" :class="log.status >= 400 ? 'badge-danger' : 'badge-success'">{{ log.status }}</span>
+                                <span style="color:var(--text-secondary);">{{ log.latency_ms }}ms</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty">暂无请求记录</div>
+                </div>
+            </div>
         </div>
-    </div>
+
+        <div v-if="activeTab==='channels'">
+            <div class="card">
+                <div class="card-header">
+                    <h2>渠道列表</h2>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-ghost btn-sm" @click="loadData">&#8635; 刷新</button>
+                        <button class="btn btn-primary" @click="showAddChannel">+ 添加渠道</button>
+                    </div>
+                </div>
+                <table v-if="channels.length">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>名称</th><th>类型</th><th>模型</th><th>Base URL</th><th>优先级</th><th>权重</th><th>状态</th><th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="ch in channels" :key="ch.id">
+                            <td>{{ ch.id }}</td>
+                            <td><strong>{{ ch.name }}</strong></td>
+                            <td>
+                                <span class="channel-type-icon">
+                                    <span class="channel-type-dot" :class="typeDot(ch.type)"></span>
+                                    {{ typeName(ch.type) }}
+                                </span>
+                            </td>
+                            <td><span class="code">{{ ch.model }}</span></td>
+                            <td class="truncate" :title="ch.base_url">{{ ch.base_url }}</td>
+                            <td>{{ ch.priority }}</td>
+                            <td>{{ ch.weight }}</td>
+                            <td>
+                                <label class="toggle">
+                                    <input type="checkbox" :checked="ch.enabled" @change="toggleChannel(ch)">
+                                    <span class="slider"></span>
+                                </label>
+                            </td>
+                            <td class="actions">
+                                <button class="btn btn-ghost btn-sm" @click="editChannel(ch)" title="编辑">&#9998;</button>
+                                <button class="btn btn-ghost btn-sm" @click="pingChannel(ch)" :disabled="pinging[ch.id]" title="测试连通性">
+                                    {{ pinging[ch.id] ? '&#8987;' : '&#128269;' }}
+                                </button>
+                                <button class="btn btn-ghost btn-sm" style="color:var(--danger);" @click="deleteChannel(ch.id)" title="删除">&#128465;</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">
+                    <div class="empty-icon">&#128269;</div>
+                    <p>暂无渠道，点击"添加渠道"开始配置</p>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="activeTab==='routes'">
+            <div class="card">
+                <div class="card-header">
+                    <h2>路由规则</h2>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-ghost btn-sm" @click="loadData">&#8635; 刷新</button>
+                        <button class="btn btn-primary" @click="showAddRoute">+ 添加路由</button>
+                    </div>
+                </div>
+                <table v-if="routes.length">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>匹配模式</th><th>渠道</th><th>负载均衡</th><th>优先级</th><th>状态</th><th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="r in routes" :key="r.id">
+                            <td>{{ r.id }}</td>
+                            <td><span class="code">{{ r.pattern }}</span></td>
+                            <td>
+                                <span v-for="cid in r.channel_ids" :key="cid" class="badge badge-gray" style="margin-right:4px;">{{ getChannelName(cid) }}</span>
+                            </td>
+                            <td><span class="badge badge-info">{{ lbName(r.load_balance) }}</span></td>
+                            <td>{{ r.priority }}</td>
+                            <td>
+                                <label class="toggle">
+                                    <input type="checkbox" :checked="r.enabled" @change="toggleRoute(r)">
+                                    <span class="slider"></span>
+                                </label>
+                            </td>
+                            <td class="actions">
+                                <button class="btn btn-ghost btn-sm" style="color:var(--danger);" @click="deleteRoute(r.id)" title="删除">&#128465;</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">
+                    <div class="empty-icon">&#9881;</div>
+                    <p>暂无路由规则</p>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="activeTab==='traffic'">
+            <div class="stat-cards">
+                <div class="stat-card">
+                    <div class="icon blue">&#128200;</div>
+                    <div class="info">
+                        <div class="label">总请求</div>
+                        <div class="value">{{ trafficTotal }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon green">&#10003;</div>
+                    <div class="info">
+                        <div class="label">成功</div>
+                        <div class="value">{{ trafficSuccess }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon orange">&#9888;</div>
+                    <div class="info">
+                        <div class="label">失败</div>
+                        <div class="value">{{ trafficFail }}</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon purple">&#9201;</div>
+                    <div class="info">
+                        <div class="label">平均延迟</div>
+                        <div class="value">{{ trafficAvgLatency }}ms</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>渠道流量分布</h2>
+                    <select v-model="trafficChartType" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text);">
+                        <option value="bar">柱状图</option>
+                        <option value="pie">饼图</option>
+                    </select>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container"><canvas ref="trafficChart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:16px;">
+                <div class="card-header"><h2>各渠道详情</h2></div>
+                <table v-if="trafficStats.length">
+                    <thead>
+                        <tr><th>渠道</th><th>类型</th><th>总请求</th><th>成功</th><th>失败</th><th>成功率</th><th>平均延迟</th><th>健康状态</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="s in trafficStats" :key="s.channel_id">
+                            <td><strong>{{ s.channel_name || '渠道#' + s.channel_id }}</strong></td>
+                            <td><span class="badge badge-info">{{ s.type }}</span></td>
+                            <td>{{ s.total_requests }}</td>
+                            <td style="color:var(--success);">{{ s.success_count }}</td>
+                            <td style="color:var(--danger);">{{ s.failure_count }}</td>
+                            <td>{{ successRate(s) }}</td>
+                            <td>{{ s.avg_latency_ms }}ms</td>
+                            <td>
+                                <span class="badge" :class="s.is_healthy ? 'badge-success' : 'badge-danger'">
+                                    {{ s.is_healthy ? '健康' : '异常' }}
+                                </span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">暂无流量数据</div>
+            </div>
+        </div>
+
+        <div v-if="activeTab==='logs'">
+            <div class="card">
+                <div class="card-header">
+                    <h2>请求日志</h2>
+                    <button class="btn btn-ghost btn-sm" @click="loadLogs">&#8635; 刷新</button>
+                </div>
+                <table v-if="logs.length">
+                    <thead>
+                        <tr><th>时间</th><th>模型</th><th>渠道</th><th>状态码</th><th>延迟</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="log in logs" :key="log.request_id">
+                            <td style="font-size:12px;color:var(--text-secondary);">{{ formatTime(log.created_at) }}</td>
+                            <td><span class="code">{{ log.model }}</span></td>
+                            <td>{{ log.channel_name || '-' }}</td>
+                            <td>
+                                <span class="badge" :class="log.status >= 400 ? 'badge-danger' : 'badge-success'">{{ log.status }}</span>
+                            </td>
+                            <td>{{ log.latency_ms }}ms</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">
+                    <div class="empty-icon">&#128203;</div>
+                    <p>暂无请求日志</p>
+                </div>
+            </div>
+        </div>
+    </main>
 
     <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
         <div class="modal">
             <div class="modal-header">
-                <h3>{{modalTitle}}</h3>
-                <button class="close-btn" @click="closeModal">&times;</button>
+                <h3>{{ modalTitle }}</h3>
+                <button class="modal-close" @click="closeModal">&times;</button>
             </div>
-            <form @submit.prevent="saveForm">
-                <div v-if="modalType==='channel'" class="form-row">
-                    <div class="form-group">
-                        <label>名称</label>
-                        <input v-model="form.name" required>
+            <div class="modal-body">
+                <div v-if="modalType==='channel'">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>名称 *</label>
+                            <input v-model="form.name" required placeholder="例如: OpenAI-1">
+                        </div>
+                        <div class="form-group">
+                            <label>类型 *</label>
+                            <select v-model="form.type" required>
+                                <option value="openai_chat">OpenAI Chat</option>
+                                <option value="openai_image">OpenAI Image</option>
+                                <option value="claude">Claude</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="codex">Codex</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label>类型</label>
-                        <select v-model="form.type" required>
-                            <option value="openai_chat">OpenAI Chat</option>
-                            <option value="openai_image">OpenAI Image</option>
-                            <option value="claude">Claude</option>
-                            <option value="gemini">Gemini</option>
-                            <option value="codex">Codex</option>
-                        </select>
-                    </div>
-                </div>
-                <div v-if="modalType==='channel'" class="form-group">
-                    <label>Base URL</label>
-                    <input v-model="form.base_url" placeholder="https://api.openai.com">
-                </div>
-                <div v-if="modalType==='channel'" class="form-group">
-                    <label>API Key</label>
-                    <input v-model="form.api_key" type="password">
-                </div>
-                <div v-if="modalType==='channel'" class="form-row">
-                    <div class="form-group">
-                        <label>模型</label>
-                        <input v-model="form.model" placeholder="gpt-4o">
+                        <label>Base URL *</label>
+                        <input v-model="form.base_url" required placeholder="https://api.openai.com">
                     </div>
                     <div class="form-group">
-                        <label>优先级</label>
-                        <input v-model.number="form.priority" type="number">
+                        <label>API Key *</label>
+                        <input v-model="form.api_key" :type="showKey?'text':'password'" placeholder="sk-...">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>模型 *</label>
+                            <input v-model="form.model" required placeholder="gpt-4o">
+                        </div>
+                        <div class="form-group">
+                            <label>优先级</label>
+                            <input v-model.number="form.priority" type="number" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>权重</label>
+                            <input v-model.number="form.weight" type="number" min="1" placeholder="1">
+                        </div>
+                        <div class="form-group">
+                            <label>最大重试</label>
+                            <input v-model.number="form.max_retries" type="number" min="0" placeholder="3">
+                        </div>
+                        <div class="form-group">
+                            <label>超时(秒)</label>
+                            <input v-model.number="form.timeout" type="number" min="1" placeholder="120">
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label>权重</label>
-                        <input v-model.number="form.weight" type="number" min="1">
-                    </div>
-                </div>
-                <div v-if="modalType==='route'" class="form-row">
-                    <div class="form-group">
-                        <label>匹配模式</label>
-                        <input v-model="form.pattern" placeholder="gpt-*">
-                    </div>
-                    <div class="form-group">
-                        <label>渠道 IDs (逗号分隔)</label>
-                        <input v-model="form.channel_ids" placeholder="1,2,3">
-                    </div>
-                </div>
-                <div v-if="modalType==='route'" class="form-row">
-                    <div class="form-group">
-                        <label>负载均衡</label>
-                        <select v-model="form.load_balance">
-                            <option value="round_robin">轮询</option>
-                            <option value="weighted">加权</option>
-                            <option value="random">随机</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>优先级</label>
-                        <input v-model.number="form.priority" type="number">
+                        <label class="toggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                            <input type="checkbox" v-model="form.enabled">
+                            <span class="slider"></span>
+                            <span>启用</span>
+                        </label>
                     </div>
                 </div>
-                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
-                    <button type="button" class="btn" @click="closeModal">取消</button>
-                    <button type="submit" class="btn btn-primary">保存</button>
+                <div v-if="modalType==='route'">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>匹配模式 *</label>
+                            <input v-model="form.pattern" required placeholder="gpt-*">
+                        </div>
+                        <div class="form-group">
+                            <label>渠道 IDs (逗号分隔) *</label>
+                            <input v-model="form.channel_ids" required placeholder="1,2,3">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>负载均衡</label>
+                            <select v-model="form.load_balance">
+                                <option value="round_robin">轮询</option>
+                                <option value="weighted">加权</option>
+                                <option value="random">随机</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>优先级</label>
+                            <input v-model.number="form.priority" type="number" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="toggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                            <input type="checkbox" v-model="form.enabled">
+                            <span class="slider"></span>
+                            <span>启用</span>
+                        </label>
+                    </div>
                 </div>
-            </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @click="closeModal">取消</button>
+                <button class="btn btn-primary" @click="saveForm">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container">
+        <div v-for="t in toasts" :key="t.id" class="toast" :class="'toast-'+t.type">
+            {{ t.message }}
         </div>
     </div>
 </div>
 
 <script>
-const { createApp } = Vue;
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 
 createApp({
-    data() {
-        return {
-            activeTab: 'channels',
-            channels: [],
-            routes: [],
-            stats: [],
-            showModal: false,
-            modalType: '',
-            modalTitle: '',
-            form: {}
-        };
-    },
-    mounted() {
-        this.loadData();
-    },
-    methods: {
-        async loadData() {
-            const [chRes, rtRes, stRes] = await Promise.all([
-                fetch('/api/channels'),
-                fetch('/api/routes'),
-                fetch('/api/stats')
-            ]);
-            this.channels = await chRes.json();
-            this.routes = await rtRes.json();
-            this.stats = await stRes.json();
-        },
-        showAddChannel() {
-            this.modalType = 'channel';
-            this.modalTitle = '添加渠道';
-            this.form = { type: 'openai_chat', priority: 0, weight: 1, enabled: true, max_retries: 3, timeout: 120 };
-            this.showModal = true;
-        },
-        editChannel(ch) {
-            this.modalType = 'channel';
-            this.modalTitle = '编辑渠道';
-            this.form = { ...ch };
-            this.showModal = true;
-        },
-        async deleteChannel(id) {
-            if (!confirm('确定删除此渠道？')) return;
-            await fetch('/api/channels/' + id, { method: 'DELETE' });
-            this.loadData();
-        },
-        showAddRoute() {
-            this.modalType = 'route';
-            this.modalTitle = '添加路由';
-            this.form = { load_balance: 'round_robin', priority: 0, enabled: true };
-            this.showModal = true;
-        },
-        async deleteRoute(id) {
-            if (!confirm('确定删除此路由？')) return;
-            await fetch('/api/routes/' + id, { method: 'DELETE' });
-            this.loadData();
-        },
-        async saveForm() {
-            let url, method;
-            if (this.modalType === 'channel') {
-                url = this.form.id ? '/api/channels/' + this.form.id : '/api/channels';
-                method = this.form.id ? 'PUT' : 'POST';
-            } else {
-                url = '/api/routes';
-                method = 'POST';
-            }
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.form)
-            });
-            if (res.ok) {
-                this.closeModal();
-                this.loadData();
-            } else {
-                alert('保存失败');
-            }
-        },
-        closeModal() {
-            this.showModal = false;
+    setup() {
+        const activeTab = ref('dashboard');
+        const channels = ref([]);
+        const routes = ref([]);
+        const stats = ref([]);
+        const trafficStats = ref([]);
+        const logs = ref([]);
+        const recentLogs = ref([]);
+        const showModal = ref(false);
+        const modalType = ref('');
+        const modalTitle = ref('');
+        const form = reactive({});
+        const toasts = ref([]);
+        const isDark = ref(false);
+        const showKey = ref(false);
+        const pinging = reactive({});
+        const trafficChart = ref(null);
+        const trafficChartType = ref('bar');
+        let chartInstance = null;
+        let toastId = 0;
+
+        const pageTitle = computed(() => {
+            const map = { dashboard: '仪表盘', channels: '渠道管理', routes: '模型路由', traffic: '流量统计', logs: '请求日志' };
+            return map[activeTab.value] || '';
+        });
+
+        const pageDesc = computed(() => {
+            const map = { dashboard: '查看系统概览与运行状态', channels: '管理上游 API 渠道', routes: '配置模型路由规则', traffic: '查看各渠道流量分布与统计数据', logs: '查看最近的代理请求记录' };
+            return map[activeTab.value] || '';
+        });
+
+        const activeChannels = computed(() => channels.value.filter(c => c.enabled).length);
+        const totalRequests = computed(() => trafficStats.value.reduce((s, t) => s + (t.total_requests || 0), 0));
+        const trafficTotal = computed(() => totalRequests.value);
+        const trafficSuccess = computed(() => trafficStats.value.reduce((s, t) => s + (t.success_count || 0), 0));
+        const trafficFail = computed(() => trafficStats.value.reduce((s, t) => s + (t.failure_count || 0), 0));
+        const trafficAvgLatency = computed(() => {
+            if (!trafficStats.value.length) return 0;
+            const total = trafficStats.value.reduce((s, t) => s + (t.avg_latency_ms || 0) * (t.total_requests || 1), 0);
+            const count = trafficStats.value.reduce((s, t) => s + (t.total_requests || 0), 0);
+            return count ? Math.round(total / count) : 0;
+        });
+
+        function toast(message, type = 'info') {
+            const id = ++toastId;
+            toasts.value.push({ id, message, type });
+            setTimeout(() => {
+                const i = toasts.value.findIndex(t => t.id === id);
+                if (i > -1) toasts.value.splice(i, 1);
+            }, 3000);
         }
+
+        async function api(url, opts = {}) {
+            const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+            if (!res.ok) throw new Error(await res.text());
+            return res.json();
+        }
+
+        async function loadData() {
+            try {
+                const [chRes, rtRes, stRes, tsRes, logsRes] = await Promise.all([
+                    fetch('/api/channels'),
+                    fetch('/api/routes'),
+                    fetch('/api/stats'),
+                    fetch('/api/stats/traffic'),
+                    fetch('/api/logs?limit=10&offset=0'),
+                ]);
+                channels.value = await chRes.json() || [];
+                routes.value = await rtRes.json() || [];
+                stats.value = await stRes.json() || [];
+                trafficStats.value = await tsRes.json() || [];
+                logs.value = [];
+                recentLogs.value = await logsRes.json() || [];
+                updateChart();
+            } catch (e) {
+                toast('加载数据失败: ' + e.message, 'error');
+            }
+        }
+
+        async function loadLogs() {
+            try {
+                logs.value = await fetch('/api/logs?limit=100&offset=0').then(r => r.json()) || [];
+            } catch (e) {
+                toast('加载日志失败: ' + e.message, 'error');
+            }
+        }
+
+        function showAddChannel() {
+            modalType.value = 'channel';
+            modalTitle.value = '添加渠道';
+            Object.assign(form, { type: 'openai_chat', priority: 0, weight: 1, enabled: true, max_retries: 3, timeout: 120 });
+            showModal.value = true;
+        }
+
+        function editChannel(ch) {
+            modalType.value = 'channel';
+            modalTitle.value = '编辑渠道';
+            Object.assign(form, { ...ch });
+            showModal.value = true;
+        }
+
+        async function toggleChannel(ch) {
+            try {
+                await api('/api/channels/' + ch.id, { method: 'PUT', body: JSON.stringify({ ...ch, enabled: !ch.enabled }) });
+                toast(ch.enabled ? '渠道已禁用' : '渠道已启用', 'success');
+                loadData();
+            } catch (e) {
+                toast('操作失败', 'error');
+            }
+        }
+
+        async function deleteChannel(id) {
+            if (!confirm('确定删除此渠道？')) return;
+            try {
+                await fetch('/api/channels/' + id, { method: 'DELETE' });
+                toast('渠道已删除', 'success');
+                loadData();
+            } catch (e) {
+                toast('删除失败', 'error');
+            }
+        }
+
+        async function pingChannel(ch) {
+            pinging[ch.id] = true;
+            try {
+                const res = await fetch('/api/channels/' + ch.id + '/ping', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    toast('Ping 成功: ' + data.latency + 'ms (HTTP ' + data.status + ')', 'success');
+                } else {
+                    toast('Ping 失败: ' + (data.error || '未知错误'), 'error');
+                }
+            } catch (e) {
+                toast('Ping 请求失败', 'error');
+            } finally {
+                pinging[ch.id] = false;
+            }
+        }
+
+        function showAddRoute() {
+            modalType.value = 'route';
+            modalTitle.value = '添加路由规则';
+            Object.assign(form, { load_balance: 'round_robin', priority: 0, enabled: true });
+            showModal.value = true;
+        }
+
+        async function toggleRoute(r) {
+            try {
+                await api('/api/routes/' + r.id, { method: 'PUT', body: JSON.stringify({ ...r, enabled: !r.enabled }) });
+                toast(r.enabled ? '路由已禁用' : '路由已启用', 'success');
+                loadData();
+            } catch (e) {
+                toast('操作失败', 'error');
+            }
+        }
+
+        async function deleteRoute(id) {
+            if (!confirm('确定删除此路由？')) return;
+            try {
+                await fetch('/api/routes/' + id, { method: 'DELETE' });
+                toast('路由已删除', 'success');
+                loadData();
+            } catch (e) {
+                toast('删除失败', 'error');
+            }
+        }
+
+        async function saveForm() {
+            try {
+                if (modalType.value === 'channel') {
+                    const url = form.id ? '/api/channels/' + form.id : '/api/channels';
+                    const method = form.id ? 'PUT' : 'POST';
+                    await api(url, { method, body: JSON.stringify(form) });
+                    toast(form.id ? '渠道已更新' : '渠道已创建', 'success');
+                } else {
+                    await api('/api/routes', { method: 'POST', body: JSON.stringify(form) });
+                    toast('路由已创建', 'success');
+                }
+                closeModal();
+                loadData();
+            } catch (e) {
+                toast('保存失败: ' + e.message, 'error');
+            }
+        }
+
+        function closeModal() {
+            showModal.value = false;
+        }
+
+        function getChannelName(id) {
+            const ch = channels.value.find(c => c.id === id);
+            return ch ? ch.name : '#' + id;
+        }
+
+        function successRate(s) {
+            const total = s.total_requests || 0;
+            if (!total) return '-';
+            return Math.round((s.success_count / total) * 100) + '%';
+        }
+
+        function formatTime(t) {
+            if (!t) return '-';
+            return t.replace('T', ' ').substring(0, 19);
+        }
+
+        function typeName(t) {
+            const map = { openai_chat: 'OpenAI Chat', openai_image: 'OpenAI Image', claude: 'Claude', gemini: 'Gemini', codex: 'Codex' };
+            return map[t] || t;
+        }
+
+        function typeDot(t) {
+            const map = { openai_chat: 'dot-openai', openai_image: 'dot-openai', claude: 'dot-claude', gemini: 'dot-gemini', codex: 'dot-codex' };
+            return map[t] || 'dot-openai';
+        }
+
+        function lbName(lb) {
+            const map = { round_robin: '轮询', weighted: '加权', random: '随机' };
+            return map[lb] || lb;
+        }
+
+        function toggleDark() {
+            isDark.value = !isDark.value;
+            document.body.classList.toggle('dark', isDark.value);
+            localStorage.setItem('dark', isDark.value ? '1' : '0');
+            updateChart();
+        }
+
+        function updateChart() {
+            if (!trafficStats.value.length) return;
+            nextTick(() => {
+                if (chartInstance) chartInstance.destroy();
+                const canvas = trafficChart.value;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const labels = trafficStats.value.map(s => s.channel_name || '渠道#' + s.channel_id);
+                const data = trafficStats.value.map(s => s.total_requests || 0);
+                const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#ec4899', '#14b8a6'];
+
+                if (trafficChartType.value === 'pie') {
+                    chartInstance = new Chart(ctx, {
+                        type: 'pie',
+                        data: { labels, datasets: [{ data, backgroundColor: colors.slice(0, data.length) }] },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+                    });
+                } else {
+                    chartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels,
+                            datasets: [
+                                { label: '总请求', data: trafficStats.value.map(s => s.total_requests || 0), backgroundColor: '#6366f1' },
+                                { label: '成功', data: trafficStats.value.map(s => s.success_count || 0), backgroundColor: '#10b981' },
+                                { label: '失败', data: trafficStats.value.map(s => s.failure_count || 0), backgroundColor: '#ef4444' }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'top' } },
+                            scales: { y: { beginAtZero: true, ticks: { color: isDark.value ? '#94a3b8' : '#64748b' } }, x: { ticks: { color: isDark.value ? '#94a3b8' : '#64748b' } } }
+                        }
+                    });
+                }
+            });
+        }
+
+        watch(trafficChartType, updateChart);
+
+        onMounted(() => {
+            isDark.value = localStorage.getItem('dark') === '1';
+            if (isDark.value) document.body.classList.add('dark');
+            loadData();
+        });
+
+        return {
+            activeTab, channels, routes, stats, trafficStats, logs, recentLogs,
+            showModal, modalType, modalTitle, form, toasts, isDark, showKey, pinging,
+            trafficChart, trafficChartType,
+            pageTitle, pageDesc, activeChannels, totalRequests,
+            trafficTotal, trafficSuccess, trafficFail, trafficAvgLatency,
+            loadData, loadLogs, showAddChannel, editChannel, toggleChannel, deleteChannel,
+            pingChannel, showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
+            getChannelName, successRate, formatTime, typeName, typeDot, lbName,
+            toggleDark, toast
+        };
     }
 }).mount('#app');
 </script>

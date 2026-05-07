@@ -133,7 +133,10 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/routes", s.handleRoutes)
 	mux.HandleFunc("/api/routes/", s.handleRouteByID)
 	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/stats/traffic", s.handleTrafficStats)
+	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/reload", s.handleReload)
+	mux.HandleFunc("/api/channels/{id}/ping", s.handlePingChannel)
 }
 
 // handleChannels 处理渠道列表和创建请求
@@ -266,28 +269,50 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleRouteByID 处理单个路由规则的删除
+// handleRouteByID 处理单个路由规则的查询、更新和删除
 func (s *Server) handleRouteByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/routes/")
 	if idStr == "" {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
+
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	if err := s.db.DeleteRoute(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+	switch r.Method {
+	case http.MethodDelete:
+		if err := s.db.DeleteRoute(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.modelRtr.Reload()
+		w.WriteHeader(http.StatusNoContent)
+
+	case http.MethodPut:
+		var route models.ModelRoute
+		if err := json.NewDecoder(r.Body).Decode(&route); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(route.ChannelIDs) == 0 {
+			http.Error(w, "channel_ids required", http.StatusBadRequest)
+			return
+		}
+		route.ID = id
+		if err := s.db.UpdateRoute(&route); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.modelRtr.Reload()
+		json.NewEncoder(w).Encode(route)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
-	s.modelRtr.Reload()
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleStats 返回所有渠道的状态信息
@@ -319,4 +344,97 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	s.modelRtr.Reload()
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "reloaded"})
+}
+
+// handleTrafficStats 返回流量统计数据
+func (s *Server) handleTrafficStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.db.ListAllChannelStats()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleLogs 返回请求日志
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	recent := r.URL.Query().Get("recent")
+	if recent == "1" {
+		hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
+		if hours <= 0 {
+			hours = 24
+		}
+		data, err := s.db.GetRecentLogs(hours)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(data)
+		return
+	}
+
+	logs, err := s.db.GetRequestLogs(limit, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(logs)
+}
+
+// handlePingChannel 测试渠道连通性
+func (s *Server) handlePingChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	ch, err := s.db.GetChannel(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	start := time.Now()
+	client := &http.Client{Timeout: 10 * time.Second}
+	testURL := ch.BaseURL + "/v1/models"
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, testURL, nil)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"latency": 0,
+			"error":   err.Error(),
+		})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+ch.APIKey)
+
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"latency": latency,
+			"error":   err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  resp.StatusCode < 400,
+		"latency":  latency,
+		"status":   resp.StatusCode,
+		"error":    "",
+	})
 }
