@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Proxy Gateway - Admin</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; margin-bottom: 20px; border-radius: 12px; }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .header p { opacity: 0.8; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; border: none; background: white; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .tab:hover { background: #e8e8e8; }
+        .tab.active { background: #667eea; color: white; }
+        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .card h2 { font-size: 18px; margin-bottom: 15px; color: #444; }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5a6fd6; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #666; font-size: 13px; }
+        td { font-size: 14px; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-info { background: #d1ecf1; color: #0c5460; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 13px; color: #555; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal { background: white; border-radius: 12px; padding: 25px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h3 { font-size: 18px; }
+        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .actions { display: flex; gap: 8px; }
+        .empty { text-align: center; padding: 40px; color: #999; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="container">
+        <div class="header">
+            <h1>AI Proxy Gateway</h1>
+            <p>API 代理与协议转换网关管理控制台</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab" :class="{active: activeTab==='channels'}" @click="activeTab='channels'">渠道管理</button>
+            <button class="tab" :class="{active: activeTab==='routes'}" @click="activeTab='routes'">模型路由</button>
+            <button class="tab" :class="{active: activeTab==='stats'}" @click="activeTab='stats'">状态监控</button>
+        </div>
+
+        <div v-if="activeTab==='channels'" class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                <h2>渠道列表</h2>
+                <button class="btn btn-primary" @click="showAddChannel">添加渠道</button>
+            </div>
+            <table v-if="channels.length">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>名称</th><th>类型</th><th>模型</th><th>优先级</th><th>权重</th><th>状态</th><th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="ch in channels" :key="ch.id">
+                        <td>{{ch.id}}</td>
+                        <td>{{ch.name}}</td>
+                        <td><span class="badge badge-info">{{ch.type}}</span></td>
+                        <td>{{ch.model}}</td>
+                        <td>{{ch.priority}}</td>
+                        <td>{{ch.weight}}</td>
+                        <td><span class="badge" :class="ch.enabled?'badge-success':'badge-danger'">{{ch.enabled?'启用':'禁用'}}</span></td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-primary" @click="editChannel(ch)">编辑</button>
+                            <button class="btn btn-sm btn-danger" @click="deleteChannel(ch.id)">删除</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-else class="empty">暂无渠道，点击"添加渠道"开始配置</div>
+        </div>
+
+        <div v-if="activeTab==='routes'" class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                <h2>路由规则</h2>
+                <button class="btn btn-primary" @click="showAddRoute">添加路由</button>
+            </div>
+            <table v-if="routes.length">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>匹配模式</th><th>渠道IDs</th><th>负载均衡</th><th>优先级</th><th>状态</th><th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="r in routes" :key="r.id">
+                        <td>{{r.id}}</td>
+                        <td><code>{{r.pattern}}</code></td>
+                        <td>{{r.channel_ids}}</td>
+                        <td><span class="badge badge-info">{{r.load_balance}}</span></td>
+                        <td>{{r.priority}}</td>
+                        <td><span class="badge" :class="r.enabled?'badge-success':'badge-danger'">{{r.enabled?'启用':'禁用'}}</span></td>
+                        <td class="actions">
+                            <button class="btn btn-sm btn-danger" @click="deleteRoute(r.id)">删除</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-else class="empty">暂无路由规则</div>
+        </div>
+
+        <div v-if="activeTab==='stats'" class="card">
+            <h2>状态监控</h2>
+            <table v-if="stats.length">
+                <thead>
+                    <tr>
+                        <th>渠道ID</th><th>渠道名称</th><th>类型</th><th>状态</th><th>熔断器</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="s in stats" :key="s.channel_id">
+                        <td>{{s.channel_id}}</td>
+                        <td>{{s.channel_name}}</td>
+                        <td><span class="badge badge-info">{{s.type}}</span></td>
+                        <td><span class="badge" :class="s.enabled?'badge-success':'badge-danger'">{{s.enabled?'运行中':'已禁用'}}</span></td>
+                        <td><span class="badge" :class="s.state==='closed'?'badge-success':s.state==='open'?'badge-danger':'badge-warning'">{{s.state}}</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-else class="empty">暂无数据</div>
+        </div>
+    </div>
+
+    <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>{{modalTitle}}</h3>
+                <button class="close-btn" @click="closeModal">&times;</button>
+            </div>
+            <form @submit.prevent="saveForm">
+                <div v-if="modalType==='channel'" class="form-row">
+                    <div class="form-group">
+                        <label>名称</label>
+                        <input v-model="form.name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>类型</label>
+                        <select v-model="form.type" required>
+                            <option value="openai_chat">OpenAI Chat</option>
+                            <option value="openai_image">OpenAI Image</option>
+                            <option value="claude">Claude</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="codex">Codex</option>
+                        </select>
+                    </div>
+                </div>
+                <div v-if="modalType==='channel'" class="form-group">
+                    <label>Base URL</label>
+                    <input v-model="form.base_url" placeholder="https://api.openai.com">
+                </div>
+                <div v-if="modalType==='channel'" class="form-group">
+                    <label>API Key</label>
+                    <input v-model="form.api_key" type="password">
+                </div>
+                <div v-if="modalType==='channel'" class="form-row">
+                    <div class="form-group">
+                        <label>模型</label>
+                        <input v-model="form.model" placeholder="gpt-4o">
+                    </div>
+                    <div class="form-group">
+                        <label>优先级</label>
+                        <input v-model.number="form.priority" type="number">
+                    </div>
+                    <div class="form-group">
+                        <label>权重</label>
+                        <input v-model.number="form.weight" type="number" min="1">
+                    </div>
+                </div>
+                <div v-if="modalType==='route'" class="form-row">
+                    <div class="form-group">
+                        <label>匹配模式</label>
+                        <input v-model="form.pattern" placeholder="gpt-*">
+                    </div>
+                    <div class="form-group">
+                        <label>渠道 IDs (逗号分隔)</label>
+                        <input v-model="form.channel_ids" placeholder="1,2,3">
+                    </div>
+                </div>
+                <div v-if="modalType==='route'" class="form-row">
+                    <div class="form-group">
+                        <label>负载均衡</label>
+                        <select v-model="form.load_balance">
+                            <option value="round_robin">轮询</option>
+                            <option value="weighted">加权</option>
+                            <option value="random">随机</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>优先级</label>
+                        <input v-model.number="form.priority" type="number">
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+                    <button type="button" class="btn" @click="closeModal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+    data() {
+        return {
+            activeTab: 'channels',
+            channels: [],
+            routes: [],
+            stats: [],
+            showModal: false,
+            modalType: '',
+            modalTitle: '',
+            form: {}
+        };
+    },
+    mounted() {
+        this.loadData();
+    },
+    methods: {
+        async loadData() {
+            const [chRes, rtRes, stRes] = await Promise.all([
+                fetch('/api/channels'),
+                fetch('/api/routes'),
+                fetch('/api/stats')
+            ]);
+            this.channels = await chRes.json();
+            this.routes = await rtRes.json();
+            this.stats = await stRes.json();
+        },
+        showAddChannel() {
+            this.modalType = 'channel';
+            this.modalTitle = '添加渠道';
+            this.form = { type: 'openai_chat', priority: 0, weight: 1, enabled: true, max_retries: 3, timeout: 120 };
+            this.showModal = true;
+        },
+        editChannel(ch) {
+            this.modalType = 'channel';
+            this.modalTitle = '编辑渠道';
+            this.form = { ...ch };
+            this.showModal = true;
+        },
+        async deleteChannel(id) {
+            if (!confirm('确定删除此渠道？')) return;
+            await fetch('/api/channels/' + id, { method: 'DELETE' });
+            this.loadData();
+        },
+        showAddRoute() {
+            this.modalType = 'route';
+            this.modalTitle = '添加路由';
+            this.form = { load_balance: 'round_robin', priority: 0, enabled: true };
+            this.showModal = true;
+        },
+        async deleteRoute(id) {
+            if (!confirm('确定删除此路由？')) return;
+            await fetch('/api/routes/' + id, { method: 'DELETE' });
+            this.loadData();
+        },
+        async saveForm() {
+            let url, method;
+            if (this.modalType === 'channel') {
+                url = this.form.id ? '/api/channels/' + this.form.id : '/api/channels';
+                method = this.form.id ? 'PUT' : 'POST';
+            } else {
+                url = '/api/routes';
+                method = 'POST';
+            }
+            const res = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.form)
+            });
+            if (res.ok) {
+                this.closeModal();
+                this.loadData();
+            } else {
+                alert('保存失败');
+            }
+        },
+        closeModal() {
+            this.showModal = false;
+        }
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
