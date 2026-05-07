@@ -17,6 +17,7 @@ import (
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
 	"ai-proxy-gateway/internal/models"
+	"ai-proxy-gateway/internal/protocol"
 	"ai-proxy-gateway/internal/proxy"
 	mr "ai-proxy-gateway/internal/router"
 )
@@ -60,10 +61,11 @@ func main() {
 	fo := failover.NewFailoverManager(5, 60)
 	modelRtr := mr.New(database)
 	proxyHdl := proxy.New(chMgr, fo, modelRtr)
+	protoAdapter := protocol.New(chMgr, fo)
 
 	authMgr := auth.New(cfg.AdminUsername, cfg.AdminPassword, 24*time.Hour)
 
-	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey)
+	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey, protoAdapter)
 
 	// 注册代理 API 路由
 	proxyMux := http.NewServeMux()

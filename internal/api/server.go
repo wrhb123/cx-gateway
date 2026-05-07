@@ -31,10 +31,23 @@ type Server struct {
 	proxyHdl    ProxyHandler
 	authMgr     *auth.Manager
 	proxyAPIKey string
+	protoAdapter interface {
+		HandleClaudeMessages(w http.ResponseWriter, r *http.Request)
+		HandleResponsesAPI(w http.ResponseWriter, r *http.Request)
+		HandleResponsesCompact(w http.ResponseWriter, r *http.Request)
+		HandleGeminiGenerateContent(w http.ResponseWriter, r *http.Request)
+		HandleGeminiStreamGenerateContent(w http.ResponseWriter, r *http.Request)
+	}
 }
 
 // New 创建新的 API 服务器
-func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverManager, mr *router.ModelRouter, ph ProxyHandler, am *auth.Manager, proxyKey string) *Server {
+func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverManager, mr *router.ModelRouter, ph ProxyHandler, am *auth.Manager, proxyKey string, protoAdapter interface {
+	HandleClaudeMessages(w http.ResponseWriter, r *http.Request)
+	HandleResponsesAPI(w http.ResponseWriter, r *http.Request)
+	HandleResponsesCompact(w http.ResponseWriter, r *http.Request)
+	HandleGeminiGenerateContent(w http.ResponseWriter, r *http.Request)
+	HandleGeminiStreamGenerateContent(w http.ResponseWriter, r *http.Request)
+}) *Server {
 	return &Server{
 		db:          database,
 		channelMgr:  chMgr,
@@ -43,6 +56,7 @@ func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverMan
 		proxyHdl:    ph,
 		authMgr:     am,
 		proxyAPIKey: proxyKey,
+		protoAdapter: protoAdapter,
 	}
 }
 
@@ -51,6 +65,16 @@ func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/chat/completions", s.proxyMiddleware(s.handleChatCompletions))
 	mux.HandleFunc("/v1/images/generations", s.proxyMiddleware(s.handleImageGeneration))
 	mux.HandleFunc("/v1/models", s.proxyMiddleware(s.handleListModels))
+	
+	// Native protocol routes
+	if s.protoAdapter != nil {
+		mux.HandleFunc("/v1/messages", s.proxyMiddleware(s.protoAdapter.HandleClaudeMessages))
+		mux.HandleFunc("/v1/responses", s.proxyMiddleware(s.protoAdapter.HandleResponsesAPI))
+		mux.HandleFunc("/v1/responses/{response_id}/compact", s.proxyMiddleware(s.protoAdapter.HandleResponsesCompact))
+		mux.HandleFunc("/v1beta/models/{model}:generateContent", s.proxyMiddleware(s.protoAdapter.HandleGeminiGenerateContent))
+		mux.HandleFunc("/v1beta/models/{model}:streamGenerateContent", s.proxyMiddleware(s.protoAdapter.HandleGeminiStreamGenerateContent))
+	}
+	
 	mux.HandleFunc("/", s.proxyMiddleware(s.handleFallback))
 }
 
