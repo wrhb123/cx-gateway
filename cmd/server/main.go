@@ -56,6 +56,7 @@ func main() {
 	if key := os.Getenv("PROXY_API_KEY"); key != "" {
 		cfg.ProxyAPIKey = key
 	}
+	singlePort := os.Getenv("SINGLE_PORT") == "true"
 
 	database, err := db.New(cfg.DatabasePath)
 	if err != nil {
@@ -73,47 +74,69 @@ func main() {
 
 	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey, protoAdapter, version, buildTime, gitCommit)
 
-	// 注册代理 API 路由
-	proxyMux := http.NewServeMux()
-	srv.RegisterProxyRoutes(proxyMux)
-
-	// 注册管理 API 路由并挂载 Web 管理界面
-	adminMux := http.NewServeMux()
-	srv.RegisterAdminRoutes(adminMux)
-
 	webFS, _ := fs.Sub(webFiles, "web")
-	adminMux.Handle("/", http.FileServer(http.FS(webFS)))
 
-	// 启动代理服务器
-	proxyServer := &http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.ServerPort),
-		Handler: proxyMux,
+	var server *http.Server
+
+	if singlePort {
+		// Single-port mode: proxy and admin share the same port
+		mux := http.NewServeMux()
+		srv.RegisterProxyRoutes(mux)
+		srv.RegisterAdminRoutes(mux)
+		mux.Handle("/", http.FileServer(http.FS(webFS)))
+
+		server = &http.Server{
+			Addr:    ":" + strconv.Itoa(cfg.ServerPort),
+			Handler: mux,
+		}
+
+		go func() {
+			log.Printf("Single-port server starting on :%d (proxy + admin + web)", cfg.ServerPort)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Server failed: %v", err)
+			}
+		}()
+	} else {
+		// Dual-port mode: separate proxy and admin servers
+		proxyMux := http.NewServeMux()
+		srv.RegisterProxyRoutes(proxyMux)
+
+		adminMux := http.NewServeMux()
+		srv.RegisterAdminRoutes(adminMux)
+		adminMux.Handle("/", http.FileServer(http.FS(webFS)))
+
+		proxyServer := &http.Server{
+			Addr:    ":" + strconv.Itoa(cfg.ServerPort),
+			Handler: proxyMux,
+		}
+
+		adminServer := &http.Server{
+			Addr:    ":" + strconv.Itoa(cfg.AdminPort),
+			Handler: adminMux,
+		}
+
+		go func() {
+			log.Printf("Proxy server starting on :%d", cfg.ServerPort)
+			if cfg.ProxyAPIKey != "" {
+				log.Printf("Proxy API key authentication enabled")
+			} else {
+				log.Printf("WARNING: Proxy API key not set, all requests will be accepted")
+			}
+			if err := proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Proxy server failed: %v", err)
+			}
+		}()
+
+		go func() {
+			log.Printf("Admin panel starting on :%d (user: %s)", cfg.AdminPort, cfg.AdminUsername)
+			if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Admin server failed: %v", err)
+			}
+		}()
+
+		server = proxyServer
+		_ = adminServer
 	}
-
-	// 启动管理服务器
-	adminServer := &http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.AdminPort),
-		Handler: adminMux,
-	}
-
-	go func() {
-		log.Printf("Proxy server starting on :%d", cfg.ServerPort)
-		if cfg.ProxyAPIKey != "" {
-			log.Printf("Proxy API key authentication enabled")
-		} else {
-			log.Printf("WARNING: Proxy API key not set, all requests will be accepted")
-		}
-		if err := proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Proxy server failed: %v", err)
-		}
-	}()
-
-	go func() {
-		log.Printf("Admin panel starting on :%d (user: %s)", cfg.AdminPort, cfg.AdminUsername)
-		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Admin server failed: %v", err)
-		}
-	}()
 
 	// 定时清理过期会话
 	go func() {
@@ -130,6 +153,5 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down servers...")
-	proxyServer.Close()
-	adminServer.Close()
+	server.Close()
 }
