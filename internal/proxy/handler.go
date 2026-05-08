@@ -146,6 +146,7 @@ func (h *Handler) ProxyRequest(w http.ResponseWriter, r *http.Request, model str
 			if len(activeKey.APIKey) > 8 {
 				log.KeyMask = activeKey.APIKey[:8] + "..."
 			}
+			h.db.IncrementKeyUsage(activeKey.ID, latency)
 		} else if len(ch.APIKey) > 8 {
 			log.KeyMask = ch.APIKey[:8] + "..."
 		}
@@ -226,7 +227,6 @@ func (h *Handler) forwardRequest(ch *models.Channel, model string, body []byte, 
 	apiKey := ch.APIKey
 	if activeKey, err := h.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		h.db.IncrementKeyUsage(activeKey.ID)
 	}
 
 	switch ch.Type {

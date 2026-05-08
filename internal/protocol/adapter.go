@@ -210,21 +210,30 @@ func (a *Adapter) forwardToClaude(ch *models.Channel, body []byte, r *http.Reque
 
 	req.Header.Set("Content-Type", "application/json")
 	apiKey := ch.APIKey
+	var keyID int64
 	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		a.db.IncrementKeyUsage(activeKey.ID)
+		keyID = activeKey.ID
 	}
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
+	start := time.Now()
 	resp, err := a.client.Do(req)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		a.failover.RecordFailure(ch.ID)
+		if keyID > 0 {
+			a.db.RecordKeyFailure(keyID, latency)
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	a.failover.RecordSuccess(ch.ID)
+	if keyID > 0 {
+		a.db.IncrementKeyUsage(keyID, latency)
+	}
 
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -244,20 +253,29 @@ func (a *Adapter) forwardToResponsesAPI(ch *models.Channel, body []byte, r *http
 
 	req.Header.Set("Content-Type", "application/json")
 	apiKey := ch.APIKey
+	var keyID int64
 	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		a.db.IncrementKeyUsage(activeKey.ID)
+		keyID = activeKey.ID
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	start := time.Now()
 	resp, err := a.client.Do(req)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		a.failover.RecordFailure(ch.ID)
+		if keyID > 0 {
+			a.db.RecordKeyFailure(keyID, latency)
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	a.failover.RecordSuccess(ch.ID)
+	if keyID > 0 {
+		a.db.IncrementKeyUsage(keyID, latency)
+	}
 
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -277,20 +295,29 @@ func (a *Adapter) forwardToResponsesCompact(ch *models.Channel, responseID strin
 
 	req.Header.Set("Content-Type", "application/json")
 	apiKey := ch.APIKey
+	var keyID int64
 	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		a.db.IncrementKeyUsage(activeKey.ID)
+		keyID = activeKey.ID
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	start := time.Now()
 	resp, err := a.client.Do(req)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		a.failover.RecordFailure(ch.ID)
+		if keyID > 0 {
+			a.db.RecordKeyFailure(keyID, latency)
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	a.failover.RecordSuccess(ch.ID)
+	if keyID > 0 {
+		a.db.IncrementKeyUsage(keyID, latency)
+	}
 
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -302,9 +329,10 @@ func (a *Adapter) forwardToResponsesCompact(ch *models.Channel, responseID strin
 // forwardToGemini forwards request to Gemini API
 func (a *Adapter) forwardToGemini(ch *models.Channel, geminiModel string, body []byte, r *http.Request, w http.ResponseWriter) {
 	apiKey := ch.APIKey
+	var keyID int64
 	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		a.db.IncrementKeyUsage(activeKey.ID)
+		keyID = activeKey.ID
 	}
 	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, apiKey)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
@@ -315,14 +343,22 @@ func (a *Adapter) forwardToGemini(ch *models.Channel, geminiModel string, body [
 
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := a.client.Do(req)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		a.failover.RecordFailure(ch.ID)
+		if keyID > 0 {
+			a.db.RecordKeyFailure(keyID, latency)
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	a.failover.RecordSuccess(ch.ID)
+	if keyID > 0 {
+		a.db.IncrementKeyUsage(keyID, latency)
+	}
 
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -339,9 +375,10 @@ func (a *Adapter) forwardToGeminiStream(ch *models.Channel, geminiModel string, 
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	apiKey := ch.APIKey
+	var keyID int64
 	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
 		apiKey = activeKey.APIKey
-		a.db.IncrementKeyUsage(activeKey.ID)
+		keyID = activeKey.ID
 	}
 	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", geminiModel, apiKey)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
@@ -352,14 +389,22 @@ func (a *Adapter) forwardToGeminiStream(ch *models.Channel, geminiModel string, 
 
 	req.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := a.client.Do(req)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		a.failover.RecordFailure(ch.ID)
+		if keyID > 0 {
+			a.db.RecordKeyFailure(keyID, latency)
+		}
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	a.failover.RecordSuccess(ch.ID)
+	if keyID > 0 {
+		a.db.IncrementKeyUsage(keyID, latency)
+	}
 
 	for k, v := range resp.Header {
 		w.Header()[k] = v

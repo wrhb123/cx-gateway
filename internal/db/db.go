@@ -130,6 +130,10 @@ func (db *Database) migrate() error {
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN source TEXT DEFAULT ''")
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN interface TEXT DEFAULT ''")
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN key_mask TEXT DEFAULT ''")
+	// Migration: add key-level metrics columns
+	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN success_count INTEGER DEFAULT 0")
+	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN failure_count INTEGER DEFAULT 0")
+	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN avg_latency_ms INTEGER DEFAULT 0")
 	return nil
 }
 
@@ -523,7 +527,7 @@ func (db *Database) CreateChannelKey(ck *models.ChannelKey) (int64, error) {
 // ListChannelKeys 列出渠道的所有 Key
 func (db *Database) ListChannelKeys(channelID int64) ([]models.ChannelKey, error) {
 	rows, err := db.Conn.Query(`
-		SELECT id, channel_id, api_key, status, priority, usage_count,
+		SELECT id, channel_id, api_key, status, priority, usage_count, success_count, failure_count, avg_latency_ms,
 			COALESCE(last_used, '') as last_used, created_at
 		FROM channel_keys WHERE channel_id=? ORDER BY priority DESC, id ASC
 	`, channelID)
@@ -535,7 +539,7 @@ func (db *Database) ListChannelKeys(channelID int64) ([]models.ChannelKey, error
 	var keys []models.ChannelKey
 	for rows.Next() {
 		var k models.ChannelKey
-		if err := rows.Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.SuccessCount, &k.FailureCount, &k.AvgLatency, &k.LastUsed, &k.CreatedAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)
@@ -547,10 +551,10 @@ func (db *Database) ListChannelKeys(channelID int64) ([]models.ChannelKey, error
 func (db *Database) GetChannelKey(id int64) (*models.ChannelKey, error) {
 	k := &models.ChannelKey{}
 	err := db.Conn.QueryRow(`
-		SELECT id, channel_id, api_key, status, priority, usage_count,
+		SELECT id, channel_id, api_key, status, priority, usage_count, success_count, failure_count, avg_latency_ms,
 			COALESCE(last_used, '') as last_used, created_at
 		FROM channel_keys WHERE id=?
-	`, id).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt)
+	`, id).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.SuccessCount, &k.FailureCount, &k.AvgLatency, &k.LastUsed, &k.CreatedAt)
 	return k, err
 }
 
@@ -572,11 +576,28 @@ func (db *Database) UpdateChannelKeyStatus(id int64, status string) error {
 	return err
 }
 
-// IncrementKeyUsage 增加 Key 使用计数
-func (db *Database) IncrementKeyUsage(id int64) error {
+// IncrementKeyUsage 增加 Key 使用计数（成功）
+func (db *Database) IncrementKeyUsage(id int64, latencyMs int64) error {
 	_, err := db.Conn.Exec(`
-		UPDATE channel_keys SET usage_count=usage_count+1, last_used=CURRENT_TIMESTAMP WHERE id=?
-	`, id)
+		UPDATE channel_keys SET
+			usage_count=usage_count+1,
+			success_count=success_count+1,
+			avg_latency_ms=(avg_latency_ms*(success_count+failure_count-1)+?)/(success_count+failure_count),
+			last_used=CURRENT_TIMESTAMP
+		WHERE id=?
+	`, latencyMs, id)
+	return err
+}
+
+// RecordKeyFailure 记录 Key 失败
+func (db *Database) RecordKeyFailure(id int64, latencyMs int64) error {
+	_, err := db.Conn.Exec(`
+		UPDATE channel_keys SET
+			failure_count=failure_count+1,
+			avg_latency_ms=(avg_latency_ms*(success_count+failure_count-1)+?)/(success_count+failure_count),
+			last_used=CURRENT_TIMESTAMP
+		WHERE id=?
+	`, latencyMs, id)
 	return err
 }
 
@@ -584,10 +605,10 @@ func (db *Database) IncrementKeyUsage(id int64) error {
 func (db *Database) GetActiveKeyForChannel(channelID int64) (*models.ChannelKey, error) {
 	k := &models.ChannelKey{}
 	err := db.Conn.QueryRow(`
-		SELECT id, channel_id, api_key, status, priority, usage_count,
+		SELECT id, channel_id, api_key, status, priority, usage_count, success_count, failure_count, avg_latency_ms,
 			COALESCE(last_used, '') as last_used, created_at
 		FROM channel_keys WHERE channel_id=? AND status='active' ORDER BY priority DESC, id ASC LIMIT 1
-	`, channelID).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt)
+	`, channelID).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.SuccessCount, &k.FailureCount, &k.AvgLatency, &k.LastUsed, &k.CreatedAt)
 	return k, err
 }
 

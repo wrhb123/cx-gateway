@@ -34,14 +34,17 @@ type Channel struct {
 
 // ChannelKey 表示渠道下的一个 API Key
 type ChannelKey struct {
-	ID         int64  `json:"id"`
-	ChannelID  int64  `json:"channel_id"`
-	APIKey     string `json:"api_key"`
-	Status     string `json:"status"`     // "active", "disabled", "exhausted"
-	Priority   int    `json:"priority"`   // higher = higher priority
-	UsageCount int64  `json:"usage_count"`
-	LastUsed   string `json:"last_used,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	ID           int64  `json:"id"`
+	ChannelID    int64  `json:"channel_id"`
+	APIKey       string `json:"api_key"`
+	Status       string `json:"status"`       // "active", "disabled", "exhausted"
+	Priority     int    `json:"priority"`     // higher = higher priority
+	UsageCount   int64  `json:"usage_count"`
+	SuccessCount int64  `json:"success_count"`
+	FailureCount int64  `json:"failure_count"`
+	AvgLatency   int64  `json:"avg_latency_ms"`
+	LastUsed     string `json:"last_used,omitempty"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // ChannelStats 跟踪渠道健康状态和使用情况
