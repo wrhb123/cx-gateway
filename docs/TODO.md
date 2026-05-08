@@ -69,8 +69,8 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [x] 默认使用 `v1` 作为前缀
 
 ### 3.5 Drag-and-Drop Priority
-- [ ] 前端支持拖拽调整渠道优先级
-- [ ] 后端持久化 priority 排序
+- [x] 前端支持拖拽调整渠道优先级（HTML5 原生拖拽）
+- [x] 后端持久化 priority 排序（批量更新 API）
 
 ### 3.6 Promotion Window
 - [x] Channel 模型新增 `promotion_start`、`promotion_end` 字段
@@ -88,8 +88,9 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [x] 前端弹窗展示测试进度和结果
 
 ### 4.2 Channel Details Modal
-- [ ] 前端渠道详情弹窗（配置、统计、日志）
-- [ ] 渠道日志查看（按渠道过滤）
+- [x] 前端渠道详情弹窗（配置、统计、日志）
+- [x] 渠道日志查看（按渠道过滤）
+- [x] 后端 `GET /api/channels/{id}/details` 接口返回完整详情
 
 ## 5. Observability Depth
 

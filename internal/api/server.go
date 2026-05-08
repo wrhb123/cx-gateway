@@ -315,6 +315,8 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/{id}/keys", s.authMiddleware(s.handleChannelKeys))
 	mux.HandleFunc("/api/channels/{id}/keys/{key_id}", s.authMiddleware(s.handleChannelKeyByID))
 	mux.HandleFunc("/api/channels/{id}/test", s.authMiddleware(s.handleTestChannel))
+	mux.HandleFunc("/api/channels/{id}/details", s.authMiddleware(s.handleChannelDetails))
+	mux.HandleFunc("/api/channels/priorities", s.authMiddleware(s.handleBatchPriorities))
 	mux.HandleFunc("/api/version", s.authMiddleware(s.handleVersion))
 }
 
@@ -581,6 +583,74 @@ func (s *Server) handleChannelByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleBatchPriorities 批量更新渠道优先级（拖拽排序）
+func (s *Server) handleBatchPriorities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var updates []struct {
+		ID       int64 `json:"id"`
+		Priority int   `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pairs := make([]struct{ ID int64; Priority int }, len(updates))
+	for i, u := range updates {
+		pairs[i] = struct{ ID int64; Priority int }{ID: u.ID, Priority: u.Priority}
+	}
+
+	if err := s.db.BatchUpdatePriorities(pairs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.channelMgr.Reload()
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleChannelDetails 获取渠道详情（配置、统计、日志）
+func (s *Server) handleChannelDetails(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	ch, err := s.db.GetChannel(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Get channel stats
+	var stats map[string]interface{}
+	statsRow, err := s.db.GetChannelStats(id)
+	if err == nil && len(statsRow) > 0 {
+		stats = statsRow[0]
+	}
+
+	// Get recent logs for this channel
+	logs, _ := s.db.GetRequestLogs(50, 0, id, 0, "")
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"channel": ch,
+		"stats":   stats,
+		"logs":    logs,
+	})
 }
 
 // handleRoutes 处理路由规则的查询和创建

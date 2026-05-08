@@ -165,6 +165,22 @@ func (db *Database) UpdateChannel(ch *models.Channel) error {
 	return err
 }
 
+// BatchUpdatePriorities 批量更新渠道优先级
+func (db *Database) BatchUpdatePriorities(updates []struct{ ID int64; Priority int }) error {
+	tx, err := db.Conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, u := range updates {
+		_, err := tx.Exec("UPDATE channels SET priority=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", u.Priority, u.ID)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteChannel 删除渠道
 func (db *Database) DeleteChannel(id int64) error {
 	_, err := db.Conn.Exec("DELETE FROM channels WHERE id=?", id)
@@ -344,6 +360,47 @@ func (db *Database) LogRequest(log *models.RequestLog) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency, log.PromptTokens, log.CompletionTokens, log.TotalTokens, log.Source, log.Interface, log.KeyMask)
 	return err
+}
+
+// GetChannelStats 获取单个渠道的统计数据
+func (db *Database) GetChannelStats(channelID int64) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT cs.channel_id, c.name, c.type, c.enabled,
+			cs.total_requests, cs.success_count, cs.failure_count,
+			cs.avg_latency_ms, cs.is_healthy, cs.last_error, cs.last_checked
+		FROM channel_stats cs
+		LEFT JOIN channels c ON cs.channel_id = c.id
+		WHERE cs.channel_id=?
+	`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var name, chType, lastError sql.NullString
+		var enabled, totalReqs, successCount, failureCount, avgLatency, isHealthy int64
+		var lastChecked sql.NullString
+		if err := rows.Scan(&id, &name, &chType, &enabled, &totalReqs, &successCount, &failureCount, &avgLatency, &isHealthy, &lastError, &lastChecked); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"channel_id":     id,
+			"channel_name":   name.String,
+			"type":           chType.String,
+			"enabled":        enabled == 1,
+			"total_requests": totalReqs,
+			"success_count":  successCount,
+			"failure_count":  failureCount,
+			"avg_latency_ms": avgLatency,
+			"is_healthy":     isHealthy == 1,
+			"last_error":     lastError.String,
+			"last_checked":   lastChecked.String,
+		})
+	}
+	return results, nil
 }
 
 // ListAllChannelStats 列出所有渠道的统计数据
