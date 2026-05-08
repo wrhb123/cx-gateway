@@ -77,6 +77,15 @@ func (cb *CircuitBreaker) GetState() string {
 	return cb.state
 }
 
+// Reset 重置熔断器到初始状态
+func (cb *CircuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.state = "closed"
+	cb.failureCount = 0
+	cb.successCount = 0
+}
+
 // FailoverManager 管理所有渠道的熔断器
 type FailoverManager struct {
 	mu            sync.RWMutex
@@ -128,4 +137,10 @@ func (fm *FailoverManager) RecordFailure(channelID int64) {
 func (fm *FailoverManager) GetState(channelID int64) string {
 	cb := fm.GetBreaker(channelID)
 	return cb.GetState()
+}
+
+// ResetState 重置渠道熔断器状态
+func (fm *FailoverManager) ResetState(channelID int64) {
+	cb := fm.GetBreaker(channelID)
+	cb.Reset()
 }
