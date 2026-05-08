@@ -21,7 +21,7 @@ func setupTestAdapter(t *testing.T) (*Adapter, func()) {
 
 	chMgr := channel.New(database)
 	fo := failover.NewFailoverManager(5, 60)
-	adapter := New(chMgr, fo)
+	adapter := New(chMgr, fo, database)
 
 	return adapter, func() {
 		database.Close()

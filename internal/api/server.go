@@ -38,6 +38,9 @@ type Server struct {
 		HandleGeminiGenerateContent(w http.ResponseWriter, r *http.Request)
 		HandleGeminiStreamGenerateContent(w http.ResponseWriter, r *http.Request)
 	}
+	version   string
+	buildTime string
+	gitCommit string
 }
 
 // New 创建新的 API 服务器
@@ -47,7 +50,7 @@ func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverMan
 	HandleResponsesCompact(w http.ResponseWriter, r *http.Request)
 	HandleGeminiGenerateContent(w http.ResponseWriter, r *http.Request)
 	HandleGeminiStreamGenerateContent(w http.ResponseWriter, r *http.Request)
-}) *Server {
+}, ver, buildTime, commit string) *Server {
 	return &Server{
 		db:          database,
 		channelMgr:  chMgr,
@@ -57,11 +60,36 @@ func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverMan
 		authMgr:     am,
 		proxyAPIKey: proxyKey,
 		protoAdapter: protoAdapter,
+		version:     ver,
+		buildTime:   buildTime,
+		gitCommit:   commit,
 	}
 }
 
+// handleHealth 返回服务健康状态
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	channels := s.channelMgr.GetAllChannels()
+	healthyCount := 0
+	for _, ch := range channels {
+		if s.failover.IsHealthy(ch.ID) {
+			healthyCount++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "ok",
+		"channels_total":  len(channels),
+		"channels_healthy": healthyCount,
+		"uptime_seconds":  time.Since(startTime).Seconds(),
+	})
+}
+
+var startTime = time.Now()
+
 // RegisterProxyRoutes 注册代理 API 路由（兼容 OpenAI 格式）
 func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/v1/chat/completions", s.proxyMiddleware(s.handleChatCompletions))
 	mux.HandleFunc("/v1/images/generations", s.proxyMiddleware(s.handleImageGeneration))
 	mux.HandleFunc("/v1/models", s.proxyMiddleware(s.handleListModels))
@@ -228,6 +256,11 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/logs", s.authMiddleware(s.handleLogs))
 	mux.HandleFunc("/api/reload", s.authMiddleware(s.handleReload))
 	mux.HandleFunc("/api/channels/{id}/ping", s.authMiddleware(s.handlePingChannel))
+	mux.HandleFunc("/api/channels/{id}/resume", s.authMiddleware(s.handleResumeChannel))
+	mux.HandleFunc("/api/channels/{id}/keys", s.authMiddleware(s.handleChannelKeys))
+	mux.HandleFunc("/api/channels/{id}/keys/{key_id}", s.authMiddleware(s.handleChannelKeyByID))
+	mux.HandleFunc("/api/channels/{id}/test", s.authMiddleware(s.handleTestChannel))
+	mux.HandleFunc("/api/version", s.authMiddleware(s.handleVersion))
 }
 
 // authMiddleware 管理端认证中间件
@@ -697,5 +730,219 @@ func (s *Server) handlePingChannel(w http.ResponseWriter, r *http.Request) {
 		"latency":  latency,
 		"status":   resp.StatusCode,
 		"error":    "",
+	})
+}
+
+// handleResumeChannel 恢复被禁用的渠道
+func (s *Server) handleResumeChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	ch, err := s.db.GetChannel(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	ch.Enabled = true
+	if err := s.db.UpdateChannel(ch); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.failover.ResetState(ch.ID)
+	s.channelMgr.Reload()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "resumed"})
+}
+
+// handleChannelKeys 处理渠道 Key 的列表和创建
+func (s *Server) handleChannelKeys(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	channelID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid channel id", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		keys, err := s.db.ListChannelKeys(channelID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if keys == nil {
+			keys = []models.ChannelKey{}
+		}
+		json.NewEncoder(w).Encode(keys)
+
+	case http.MethodPost:
+		var ck models.ChannelKey
+		if err := json.NewDecoder(r.Body).Decode(&ck); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ck.ChannelID = channelID
+		keyID, err := s.db.CreateChannelKey(&ck)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ck.ID = keyID
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ck)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleChannelKeyByID 处理单个 Key 的更新和删除
+func (s *Server) handleChannelKeyByID(w http.ResponseWriter, r *http.Request) {
+	keyIDStr := r.PathValue("key_id")
+	keyID, err := strconv.ParseInt(keyIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid key id", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		ck, err := s.db.GetChannelKey(keyID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(ck)
+
+	case http.MethodPut:
+		var req struct {
+			Priority *int    `json:"priority"`
+			Status   *string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Priority != nil {
+			if err := s.db.UpdateChannelKeyPriority(keyID, *req.Priority); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if req.Status != nil {
+			if err := s.db.UpdateChannelKeyStatus(keyID, *req.Status); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		ck, _ := s.db.GetChannelKey(keyID)
+		json.NewEncoder(w).Encode(ck)
+
+	case http.MethodDelete:
+		if err := s.db.DeleteChannelKey(keyID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// TestResult 表示单个模型的测试结果
+type TestResult struct {
+	Model   string `json:"model"`
+	Success bool   `json:"success"`
+	Latency int64  `json:"latency_ms"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleTestChannel 对渠道进行能力测试
+func (s *Server) handleTestChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	ch, err := s.db.GetChannel(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Parse optional models to test from request body
+	var req struct {
+		Models []string `json:"models"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	testModels := req.Models
+	if len(testModels) == 0 {
+		testModels = []string{ch.Model}
+	}
+
+	results := make([]TestResult, 0, len(testModels))
+	for _, model := range testModels {
+		start := time.Now()
+		client := &http.Client{Timeout: 10 * time.Second}
+		testURL := ch.BaseURL + "/v1/models"
+		testReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, testURL, nil)
+		if err != nil {
+			results = append(results, TestResult{Model: model, Success: false, Error: err.Error()})
+			continue
+		}
+
+		// Use channel key or first active key
+		apiKey := ch.APIKey
+		if activeKey, err := s.db.GetActiveKeyForChannel(id); err == nil && activeKey != nil {
+			apiKey = activeKey.APIKey
+		}
+
+		testReq.Header.Set("Authorization", "Bearer "+apiKey)
+		resp, err := client.Do(testReq)
+		latency := time.Since(start).Milliseconds()
+		if err != nil {
+			results = append(results, TestResult{Model: model, Success: false, Latency: latency, Error: err.Error()})
+			continue
+		}
+		resp.Body.Close()
+		results = append(results, TestResult{
+			Model:   model,
+			Success: resp.StatusCode < 400,
+			Latency: latency,
+			Error:   "",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"channel_id":   id,
+		"channel_name": ch.Name,
+		"results":      results,
+	})
+}
+
+// handleVersion 返回版本信息
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"version":    s.version,
+		"build_time": s.buildTime,
+		"commit":     s.gitCommit,
 	})
 }

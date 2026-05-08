@@ -25,6 +25,12 @@ import (
 //go:embed all:web/*
 var webFiles embed.FS
 
+var (
+	version   = "dev"
+	buildTime = "unknown"
+	gitCommit = "unknown"
+)
+
 func main() {
 	cfg := models.DefaultConfig()
 
@@ -60,12 +66,12 @@ func main() {
 	chMgr := channel.New(database)
 	fo := failover.NewFailoverManager(5, 60)
 	modelRtr := mr.New(database)
-	proxyHdl := proxy.New(chMgr, fo, modelRtr)
-	protoAdapter := protocol.New(chMgr, fo)
+	proxyHdl := proxy.New(chMgr, fo, modelRtr, database)
+	protoAdapter := protocol.New(chMgr, fo, database)
 
 	authMgr := auth.New(cfg.AdminUsername, cfg.AdminPassword, 24*time.Hour)
 
-	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey, protoAdapter)
+	srv := api.New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, cfg.ProxyAPIKey, protoAdapter, version, buildTime, gitCommit)
 
 	// 注册代理 API 路由
 	proxyMux := http.NewServeMux()

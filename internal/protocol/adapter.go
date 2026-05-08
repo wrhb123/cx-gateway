@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ai-proxy-gateway/internal/channel"
+	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
 	"ai-proxy-gateway/internal/models"
 )
@@ -17,14 +18,16 @@ import (
 type Adapter struct {
 	channelMgr *channel.Manager
 	failover   *failover.FailoverManager
+	db         *db.Database
 	client     *http.Client
 }
 
 // New creates a new protocol adapter
-func New(chMgr *channel.Manager, fo *failover.FailoverManager) *Adapter {
+func New(chMgr *channel.Manager, fo *failover.FailoverManager, database *db.Database) *Adapter {
 	return &Adapter{
 		channelMgr: chMgr,
 		failover:   fo,
+		db:         database,
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 			Transport: &http.Transport{
@@ -206,7 +209,12 @@ func (a *Adapter) forwardToClaude(ch *models.Channel, body []byte, r *http.Reque
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", ch.APIKey)
+	apiKey := ch.APIKey
+	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
+		apiKey = activeKey.APIKey
+		a.db.IncrementKeyUsage(activeKey.ID)
+	}
+	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := a.client.Do(req)
@@ -235,7 +243,12 @@ func (a *Adapter) forwardToResponsesAPI(ch *models.Channel, body []byte, r *http
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ch.APIKey)
+	apiKey := ch.APIKey
+	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
+		apiKey = activeKey.APIKey
+		a.db.IncrementKeyUsage(activeKey.ID)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -263,7 +276,12 @@ func (a *Adapter) forwardToResponsesCompact(ch *models.Channel, responseID strin
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ch.APIKey)
+	apiKey := ch.APIKey
+	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
+		apiKey = activeKey.APIKey
+		a.db.IncrementKeyUsage(activeKey.ID)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -283,7 +301,12 @@ func (a *Adapter) forwardToResponsesCompact(ch *models.Channel, responseID strin
 
 // forwardToGemini forwards request to Gemini API
 func (a *Adapter) forwardToGemini(ch *models.Channel, geminiModel string, body []byte, r *http.Request, w http.ResponseWriter) {
-	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, ch.APIKey)
+	apiKey := ch.APIKey
+	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
+		apiKey = activeKey.APIKey
+		a.db.IncrementKeyUsage(activeKey.ID)
+	}
+	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, apiKey)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -315,7 +338,12 @@ func (a *Adapter) forwardToGeminiStream(ch *models.Channel, geminiModel string, 
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", geminiModel, ch.APIKey)
+	apiKey := ch.APIKey
+	if activeKey, err := a.db.GetActiveKeyForChannel(ch.ID); err == nil && activeKey != nil {
+		apiKey = activeKey.APIKey
+		a.db.IncrementKeyUsage(activeKey.ID)
+	}
+	targetURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", geminiModel, apiKey)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

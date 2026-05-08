@@ -62,7 +62,7 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatalf("failed to login: %v", err)
 	}
 
-	srv := New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, "", nil)
+	srv := New(database, chMgr, fo, modelRtr, proxyHdl, authMgr, "", nil, "", "", "")
 
 	return &testServer{
 		srv:       srv,
