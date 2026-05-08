@@ -19,12 +19,15 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [x] `POST /v1beta/models/{model}:streamGenerateContent` — Gemini 流式协议
 
 ### 1.4 Token 计数端点
-- [ ] `POST /v1/messages/count_tokens` — 统一 token 计数接口
-- [ ] 内部路由到各提供商的 token 计算
+- [x] `POST /v1/messages/count_tokens` — 统一 token 计数接口
+- [x] 内部路由到各提供商的 token 计算（OpenAI/Claude 格式估算）
+- [x] 代理请求时自动提取上游 token 使用量并记录到日志
 
 ### 1.5 Responses 会话跟踪
-- [ ] 服务端维护 `response_id` 到会话历史的映射
-- [ ] 支持多轮对话的上下文持久化
+- [x] 服务端维护 `response_id` 到会话历史的映射（`internal/session.Manager`）
+- [x] 支持多轮对话的上下文持久化（TTL 24h，5min 自动清理过期会话）
+- [x] `POST /v1/responses` 创建会话时记录消息历史
+- [x] `POST /v1/responses/{response_id}/compact` 支持追加新消息到现有会话
 
 ## 2. Channel Key Management (Multi-Key Rotation)
 
@@ -104,7 +107,9 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 
 ### 5.4 Request Log Enhancement
 - [x] 日志新增 `source`（客户端 IP）、`interface`（代理/管理）、`key_mask`（脱敏 key 前缀）字段
+- [x] 日志新增 `prompt_tokens`、`completion_tokens`、`total_tokens` 字段
 - [x] 日志支持按渠道、模型、状态码过滤
+- [x] 前端请求日志表格显示 token 使用量
 
 ## 6. Deployment & Infrastructure
 
