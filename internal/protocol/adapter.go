@@ -54,9 +54,9 @@ func (a *Adapter) HandleClaudeMessages(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var req struct {
-		Model       string `json:"model"`
-		MaxTokens   int    `json:"max_tokens"`
-		Stream      bool   `json:"stream"`
+		Model     string `json:"model"`
+		MaxTokens int    `json:"max_tokens"`
+		Stream    bool   `json:"stream"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)

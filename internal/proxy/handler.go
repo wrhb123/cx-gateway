@@ -199,7 +199,7 @@ func (h *Handler) forwardRequest(ch *models.Channel, model string, body []byte, 
 
 	switch ch.Type {
 	case models.ChannelClaude:
-		reqBody, targetURL, err = h.translateToClaude(model, body, ch, prefix)
+		reqBody, targetURL, err = h.translateToClaude(model, body, ch)
 	case models.ChannelGemini:
 		reqBody, targetURL, err = h.translateToGemini(model, body, ch)
 	case models.ChannelOpenAIChat, models.ChannelCodex:
@@ -270,7 +270,7 @@ func matchAny(patterns []string, model string) bool {
 }
 
 // translateToClaude 将 OpenAI 格式转换为 Claude API 格式
-func (h *Handler) translateToClaude(model string, body []byte, ch *models.Channel, prefix string) ([]byte, string, error) {
+func (h *Handler) translateToClaude(model string, body []byte, ch *models.Channel) ([]byte, string, error) {
 	var openaiReq struct {
 		Model       string    `json:"model"`
 		Messages    []Message `json:"messages"`
@@ -309,7 +309,7 @@ func (h *Handler) translateToClaude(model string, body []byte, ch *models.Channe
 	}
 
 	claudeBody, _ := json.Marshal(claudeReq)
-	targetURL := fmt.Sprintf("%s/%s/messages", ch.BaseURL, prefix)
+	targetURL := fmt.Sprintf("%s/v1/messages", ch.BaseURL)
 	return claudeBody, targetURL, nil
 }
 

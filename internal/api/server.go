@@ -24,13 +24,13 @@ type ProxyHandler interface {
 
 // Server 持有所有 HTTP 处理器
 type Server struct {
-	db          *db.Database
-	channelMgr  *channel.Manager
-	failover    *failover.FailoverManager
-	modelRtr    *router.ModelRouter
-	proxyHdl    ProxyHandler
-	authMgr     *auth.Manager
-	proxyAPIKey string
+	db           *db.Database
+	channelMgr   *channel.Manager
+	failover     *failover.FailoverManager
+	modelRtr     *router.ModelRouter
+	proxyHdl     ProxyHandler
+	authMgr      *auth.Manager
+	proxyAPIKey  string
 	protoAdapter interface {
 		HandleClaudeMessages(w http.ResponseWriter, r *http.Request)
 		HandleResponsesAPI(w http.ResponseWriter, r *http.Request)
@@ -52,17 +52,17 @@ func New(database *db.Database, chMgr *channel.Manager, fo *failover.FailoverMan
 	HandleGeminiStreamGenerateContent(w http.ResponseWriter, r *http.Request)
 }, ver, buildTime, commit string) *Server {
 	return &Server{
-		db:          database,
-		channelMgr:  chMgr,
-		failover:    fo,
-		modelRtr:    mr,
-		proxyHdl:    ph,
-		authMgr:     am,
-		proxyAPIKey: proxyKey,
+		db:           database,
+		channelMgr:   chMgr,
+		failover:     fo,
+		modelRtr:     mr,
+		proxyHdl:     ph,
+		authMgr:      am,
+		proxyAPIKey:  proxyKey,
 		protoAdapter: protoAdapter,
-		version:     ver,
-		buildTime:   buildTime,
-		gitCommit:   commit,
+		version:      ver,
+		buildTime:    buildTime,
+		gitCommit:    commit,
 	}
 }
 
@@ -78,10 +78,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":          "ok",
-		"channels_total":  len(channels),
+		"status":           "ok",
+		"channels_total":   len(channels),
 		"channels_healthy": healthyCount,
-		"uptime_seconds":  time.Since(startTime).Seconds(),
+		"uptime_seconds":   time.Since(startTime).Seconds(),
 	})
 }
 
@@ -93,7 +93,7 @@ func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/chat/completions", s.proxyMiddleware(s.handleChatCompletions))
 	mux.HandleFunc("/v1/images/generations", s.proxyMiddleware(s.handleImageGeneration))
 	mux.HandleFunc("/v1/models", s.proxyMiddleware(s.handleListModels))
-	
+
 	// Native protocol routes
 	if s.protoAdapter != nil {
 		mux.HandleFunc("/v1/messages", s.proxyMiddleware(s.protoAdapter.HandleClaudeMessages))
@@ -102,7 +102,7 @@ func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/v1beta/models/{model}:generateContent", s.proxyMiddleware(s.protoAdapter.HandleGeminiGenerateContent))
 		mux.HandleFunc("/v1beta/models/{model}:streamGenerateContent", s.proxyMiddleware(s.protoAdapter.HandleGeminiStreamGenerateContent))
 	}
-	
+
 	mux.HandleFunc("/", s.proxyMiddleware(s.handleFallback))
 }
 
@@ -726,10 +726,10 @@ func (s *Server) handlePingChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  resp.StatusCode < 400,
-		"latency":  latency,
-		"status":   resp.StatusCode,
-		"error":    "",
+		"success": resp.StatusCode < 400,
+		"latency": latency,
+		"status":  resp.StatusCode,
+		"error":   "",
 	})
 }
 

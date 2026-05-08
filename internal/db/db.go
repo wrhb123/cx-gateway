@@ -488,10 +488,10 @@ func (db *Database) GetRecentLogs(hours int) ([]map[string]interface{}, error) {
 			lat = avgLatency.Int64
 		}
 		results = append(results, map[string]interface{}{
-			"hour":       hour,
-			"total":      total,
-			"success":    success,
-			"failure":    failure,
+			"hour":        hour,
+			"total":       total,
+			"success":     success,
+			"failure":     failure,
 			"avg_latency": lat,
 		})
 	}
@@ -585,10 +585,10 @@ func (db *Database) IncrementKeyUsage(id int64, latencyMs int64) error {
 		UPDATE channel_keys SET
 			usage_count=usage_count+1,
 			success_count=success_count+1,
-			avg_latency_ms=(avg_latency_ms*(success_count+failure_count-1)+?)/(success_count+failure_count),
+			avg_latency_ms=CASE WHEN (success_count+failure_count)=0 THEN ? ELSE (avg_latency_ms*(success_count+failure_count)+?)/(success_count+failure_count+1) END,
 			last_used=CURRENT_TIMESTAMP
 		WHERE id=?
-	`, latencyMs, id)
+	`, latencyMs, latencyMs, id)
 	return err
 }
 
@@ -597,10 +597,10 @@ func (db *Database) RecordKeyFailure(id int64, latencyMs int64) error {
 	_, err := db.Conn.Exec(`
 		UPDATE channel_keys SET
 			failure_count=failure_count+1,
-			avg_latency_ms=(avg_latency_ms*(success_count+failure_count-1)+?)/(success_count+failure_count),
+			avg_latency_ms=CASE WHEN (success_count+failure_count)=0 THEN ? ELSE (avg_latency_ms*(success_count+failure_count)+?)/(success_count+failure_count+1) END,
 			last_used=CURRENT_TIMESTAMP
 		WHERE id=?
-	`, latencyMs, id)
+	`, latencyMs, latencyMs, id)
 	return err
 }
 

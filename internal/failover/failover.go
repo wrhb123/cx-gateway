@@ -10,7 +10,7 @@ type CircuitBreaker struct {
 	mu           sync.Mutex
 	failureCount int
 	successCount int
-	state        string        // closed, open, half-open
+	state        string // closed, open, half-open
 	lastFailure  time.Time
 	threshold    int
 	resetTimeout time.Duration

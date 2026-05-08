@@ -76,7 +76,7 @@ func main() {
 
 	webFS, _ := fs.Sub(webFiles, "web")
 
-	var server *http.Server
+	var servers []*http.Server
 
 	if singlePort {
 		// Single-port mode: proxy and admin share the same port
@@ -85,14 +85,15 @@ func main() {
 		srv.RegisterAdminRoutes(mux)
 		mux.Handle("/", http.FileServer(http.FS(webFS)))
 
-		server = &http.Server{
+		s := &http.Server{
 			Addr:    ":" + strconv.Itoa(cfg.ServerPort),
 			Handler: mux,
 		}
+		servers = append(servers, s)
 
 		go func() {
 			log.Printf("Single-port server starting on :%d (proxy + admin + web)", cfg.ServerPort)
-			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatalf("Server failed: %v", err)
 			}
 		}()
@@ -115,6 +116,8 @@ func main() {
 			Handler: adminMux,
 		}
 
+		servers = append(servers, proxyServer, adminServer)
+
 		go func() {
 			log.Printf("Proxy server starting on :%d", cfg.ServerPort)
 			if cfg.ProxyAPIKey != "" {
@@ -133,9 +136,6 @@ func main() {
 				log.Fatalf("Admin server failed: %v", err)
 			}
 		}()
-
-		server = proxyServer
-		_ = adminServer
 	}
 
 	// 定时清理过期会话
@@ -153,5 +153,7 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down servers...")
-	server.Close()
+	for _, s := range servers {
+		s.Close()
+	}
 }

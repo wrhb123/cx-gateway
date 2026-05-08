@@ -19,11 +19,11 @@ type Session struct {
 
 // Manager 管理管理员会话
 type Manager struct {
-	mu           sync.RWMutex
-	sessions     map[string]*Session
-	adminUser    string
-	adminHash    string // SHA-256 hex of password
-	sessionTTL   time.Duration
+	mu         sync.RWMutex
+	sessions   map[string]*Session
+	adminUser  string
+	adminHash  string // SHA-256 hex of password
+	sessionTTL time.Duration
 }
 
 // New 创建认证管理器

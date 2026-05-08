@@ -23,7 +23,7 @@ type Channel struct {
 	Weight          int         `json:"weight"`
 	Enabled         bool        `json:"enabled"`
 	MaxRetries      int         `json:"max_retries"`
-	Timeout         int         `json:"timeout"`            // 秒
+	Timeout         int         `json:"timeout"`                    // 秒
 	SupportedModels string      `json:"supported_models,omitempty"` // JSON array of model patterns, empty means no limit
 	ProxyURL        string      `json:"proxy_url,omitempty"`        // HTTP/SOCKS5 proxy URL
 	ProxyType       string      `json:"proxy_type,omitempty"`       // "http" or "socks5"
@@ -39,8 +39,8 @@ type ChannelKey struct {
 	ID           int64  `json:"id"`
 	ChannelID    int64  `json:"channel_id"`
 	APIKey       string `json:"api_key"`
-	Status       string `json:"status"`       // "active", "disabled", "exhausted"
-	Priority     int    `json:"priority"`     // higher = higher priority
+	Status       string `json:"status"`   // "active", "disabled", "exhausted"
+	Priority     int    `json:"priority"` // higher = higher priority
 	UsageCount   int64  `json:"usage_count"`
 	SuccessCount int64  `json:"success_count"`
 	FailureCount int64  `json:"failure_count"`
@@ -81,9 +81,9 @@ type RequestLog struct {
 	ChannelName string `json:"channel_name"`
 	Status      int    `json:"status"`
 	Latency     int64  `json:"latency_ms"`
-	Source      string `json:"source,omitempty"`       // 客户端 IP
-	Interface   string `json:"interface,omitempty"`    // "proxy" or "admin"
-	KeyMask     string `json:"key_mask,omitempty"`     // 脱敏 key 前缀
+	Source      string `json:"source,omitempty"`    // 客户端 IP
+	Interface   string `json:"interface,omitempty"` // "proxy" or "admin"
+	KeyMask     string `json:"key_mask,omitempty"`  // 脱敏 key 前缀
 	CreatedAt   string `json:"created_at"`
 }
 
