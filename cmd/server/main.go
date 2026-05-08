@@ -20,6 +20,7 @@ import (
 	"ai-proxy-gateway/internal/protocol"
 	"ai-proxy-gateway/internal/proxy"
 	mr "ai-proxy-gateway/internal/router"
+	"ai-proxy-gateway/internal/session"
 )
 
 //go:embed all:web/*
@@ -68,7 +69,8 @@ func main() {
 	fo := failover.NewFailoverManager(5, 60)
 	modelRtr := mr.New(database)
 	proxyHdl := proxy.New(chMgr, fo, modelRtr, database)
-	protoAdapter := protocol.New(chMgr, fo, database)
+	sessionMgr := session.New(24 * time.Hour)
+	protoAdapter := protocol.New(chMgr, fo, database, sessionMgr)
 
 	authMgr := auth.New(cfg.AdminUsername, cfg.AdminPassword, 24*time.Hour)
 

@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"ai-proxy-gateway/internal/channel"
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
+	"ai-proxy-gateway/internal/session"
 )
 
 func setupTestAdapter(t *testing.T) (*Adapter, func()) {
@@ -21,7 +23,8 @@ func setupTestAdapter(t *testing.T) (*Adapter, func()) {
 
 	chMgr := channel.New(database)
 	fo := failover.NewFailoverManager(5, 60)
-	adapter := New(chMgr, fo, database)
+	sessMgr := session.New(24 * time.Hour)
+	adapter := New(chMgr, fo, database, sessMgr)
 
 	return adapter, func() {
 		database.Close()

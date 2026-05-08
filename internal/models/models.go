@@ -74,17 +74,20 @@ type ModelRoute struct {
 
 // RequestLog 存储代理请求日志
 type RequestLog struct {
-	ID          int64  `json:"id"`
-	RequestID   string `json:"request_id"`
-	Model       string `json:"model"`
-	ChannelID   int64  `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	Status      int    `json:"status"`
-	Latency     int64  `json:"latency_ms"`
-	Source      string `json:"source,omitempty"`    // 客户端 IP
-	Interface   string `json:"interface,omitempty"` // "proxy" or "admin"
-	KeyMask     string `json:"key_mask,omitempty"`  // 脱敏 key 前缀
-	CreatedAt   string `json:"created_at"`
+	ID              int64  `json:"id"`
+	RequestID       string `json:"request_id"`
+	Model           string `json:"model"`
+	ChannelID       int64  `json:"channel_id"`
+	ChannelName     string `json:"channel_name"`
+	Status          int    `json:"status"`
+	Latency         int64  `json:"latency_ms"`
+	PromptTokens    int    `json:"prompt_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	TotalTokens     int    `json:"total_tokens"`
+	Source          string `json:"source,omitempty"`    // 客户端 IP
+	Interface       string `json:"interface,omitempty"` // "proxy" or "admin"
+	KeyMask         string `json:"key_mask,omitempty"`  // 脱敏 key 前缀
+	CreatedAt       string `json:"created_at"`
 }
 
 // Config 表示应用程序配置

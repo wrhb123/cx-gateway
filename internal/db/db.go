@@ -130,6 +130,10 @@ func (db *Database) migrate() error {
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN source TEXT DEFAULT ''")
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN interface TEXT DEFAULT ''")
 	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN key_mask TEXT DEFAULT ''")
+	// Migration: add token usage columns
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER DEFAULT 0")
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER DEFAULT 0")
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER DEFAULT 0")
 	// Migration: add key-level metrics columns
 	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN success_count INTEGER DEFAULT 0")
 	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN failure_count INTEGER DEFAULT 0")
@@ -336,9 +340,9 @@ func (db *Database) UpdateStats(channelID int64, success bool, latency int64, er
 // LogRequest 记录请求日志
 func (db *Database) LogRequest(log *models.RequestLog) error {
 	_, err := db.Conn.Exec(`
-		INSERT INTO request_logs (request_id, model, channel_id, channel_name, status, latency_ms, source, interface, key_mask)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency, log.Source, log.Interface, log.KeyMask)
+		INSERT INTO request_logs (request_id, model, channel_id, channel_name, status, latency_ms, prompt_tokens, completion_tokens, total_tokens, source, interface, key_mask)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency, log.PromptTokens, log.CompletionTokens, log.TotalTokens, log.Source, log.Interface, log.KeyMask)
 	return err
 }
 
@@ -406,7 +410,7 @@ func (db *Database) ListAllChannelStats() ([]map[string]interface{}, error) {
 
 // GetRequestLogs 获取请求日志（分页，支持过滤）
 func (db *Database) GetRequestLogs(limit, offset int, channelID, status int64, model string) ([]map[string]interface{}, error) {
-	q := "SELECT request_id, model, channel_id, channel_name, status, latency_ms, source, interface, key_mask, created_at FROM request_logs WHERE 1=1"
+	q := "SELECT request_id, model, channel_id, channel_name, status, latency_ms, prompt_tokens, completion_tokens, total_tokens, source, interface, key_mask, created_at FROM request_logs WHERE 1=1"
 	args := []interface{}{}
 
 	if channelID > 0 {
@@ -434,21 +438,24 @@ func (db *Database) GetRequestLogs(limit, offset int, channelID, status int64, m
 	var results []map[string]interface{}
 	for rows.Next() {
 		var reqID, model, chName, source, iface, keyMask, createdAt string
-		var chID, status, latency sql.NullInt64
-		if err := rows.Scan(&reqID, &model, &chID, &chName, &status, &latency, &source, &iface, &keyMask, &createdAt); err != nil {
+		var chID, status, latency, promptTokens, completionTokens, totalTokens sql.NullInt64
+		if err := rows.Scan(&reqID, &model, &chID, &chName, &status, &latency, &promptTokens, &completionTokens, &totalTokens, &source, &iface, &keyMask, &createdAt); err != nil {
 			return nil, err
 		}
 		results = append(results, map[string]interface{}{
-			"request_id":   reqID,
-			"model":        model,
-			"channel_id":   chID,
-			"channel_name": chName,
-			"status":       status,
-			"latency_ms":   latency,
-			"source":       source,
-			"interface":    iface,
-			"key_mask":     keyMask,
-			"created_at":   createdAt,
+			"request_id":      reqID,
+			"model":           model,
+			"channel_id":      chID,
+			"channel_name":    chName,
+			"status":          status,
+			"latency_ms":      latency,
+			"prompt_tokens":   promptTokens,
+			"completion_tokens": completionTokens,
+			"total_tokens":    totalTokens,
+			"source":          source,
+			"interface":       iface,
+			"key_mask":        keyMask,
+			"created_at":      createdAt,
 		})
 	}
 	if results == nil {

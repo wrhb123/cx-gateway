@@ -17,6 +17,7 @@ import (
 	"ai-proxy-gateway/internal/failover"
 	"ai-proxy-gateway/internal/models"
 	"ai-proxy-gateway/internal/router"
+	"ai-proxy-gateway/internal/token"
 )
 
 // Handler 是核心的代理处理器
@@ -160,12 +161,21 @@ func (h *Handler) ProxyRequest(w http.ResponseWriter, r *http.Request, model str
 
 		h.failover.RecordSuccess(chID)
 
+		// Read response body and extract token usage
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err == nil {
+			tokens := extractTokenUsage(respBody, model, ch.Type)
+			log.PromptTokens = tokens.PromptTokens
+			log.CompletionTokens = tokens.CompletionTokens
+			log.TotalTokens = tokens.TotalTokens
+		}
+
 		for k, v := range resp.Header {
 			w.Header()[k] = v
 		}
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
-		resp.Body.Close()
+		w.Write(respBody)
 		return
 	}
 
@@ -415,4 +425,54 @@ func (h *Handler) StreamResponse(w http.ResponseWriter, r *http.Request, ch *mod
 		}
 	}
 	return nil
+}
+
+// extractTokenUsage parses token counts from the upstream response body.
+// For non-streaming OpenAI/Codex responses, tokens are in the "usage" field.
+// For streaming responses, tokens may be in the final chunk or estimated.
+// For Claude responses, tokens are in the "usage" field with different key names.
+func extractTokenUsage(respBody []byte, model string, chType models.ChannelType) *token.TokenResult {
+	// Try to parse as JSON first
+	var resp map[string]interface{}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		// Not JSON or parse error, estimate from body length
+		return token.NewResult(model, len(respBody))
+	}
+
+	// Check for usage field
+	if usage, ok := resp["usage"].(map[string]interface{}); ok {
+		var prompt, completion, total int
+		if v, ok := usage["prompt_tokens"].(float64); ok {
+			prompt = int(v)
+		}
+		if v, ok := usage["completion_tokens"].(float64); ok {
+			completion = int(v)
+		}
+		if v, ok := usage["total_tokens"].(float64); ok {
+			total = int(v)
+		}
+		if prompt == 0 && completion == 0 && total == 0 {
+			// Claude format: input_tokens, output_tokens
+			if v, ok := usage["input_tokens"].(float64); ok {
+				prompt = int(v)
+			}
+			if v, ok := usage["output_tokens"].(float64); ok {
+				completion = int(v)
+			}
+			if total == 0 {
+				total = prompt + completion
+			}
+		}
+		if total > 0 {
+			return &token.TokenResult{
+				Model:            model,
+				PromptTokens:     prompt,
+				CompletionTokens: completion,
+				TotalTokens:      total,
+			}
+		}
+	}
+
+	// No usage field found, estimate from body length
+	return token.NewResult(model, len(respBody))
 }

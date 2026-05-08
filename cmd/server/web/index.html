@@ -1023,7 +1023,7 @@
                 </div>
                 <table v-if="logs.length">
                     <thead>
-                        <tr><th>时间</th><th>模型</th><th>渠道</th><th>状态码</th><th>延迟</th></tr>
+                        <tr><th>时间</th><th>模型</th><th>渠道</th><th>状态码</th><th>延迟</th><th>Tokens</th></tr>
                     </thead>
                     <tbody>
                         <tr v-for="log in logs" :key="log.request_id">
@@ -1034,6 +1034,10 @@
                                 <span class="badge" :class="log.status >= 400 ? 'badge-danger' : 'badge-success'">{{ log.status }}</span>
                             </td>
                             <td>{{ log.latency_ms }}ms</td>
+                            <td style="font-size:12px;color:var(--text-secondary);">
+                                <span v-if="log.total_tokens">{{ log.total_tokens }}</span>
+                                <span v-else>-</span>
+                            </td>
                         </tr>
                     </tbody>
                 </table>

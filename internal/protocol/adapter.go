@@ -12,6 +12,7 @@ import (
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
 	"ai-proxy-gateway/internal/models"
+	"ai-proxy-gateway/internal/session"
 )
 
 // Adapter handles native protocol requests (Claude, Responses, Gemini)
@@ -20,10 +21,11 @@ type Adapter struct {
 	failover   *failover.FailoverManager
 	db         *db.Database
 	client     *http.Client
+	sessions   *session.Manager
 }
 
 // New creates a new protocol adapter
-func New(chMgr *channel.Manager, fo *failover.FailoverManager, database *db.Database) *Adapter {
+func New(chMgr *channel.Manager, fo *failover.FailoverManager, database *db.Database, sessionMgr *session.Manager) *Adapter {
 	return &Adapter{
 		channelMgr: chMgr,
 		failover:   fo,
@@ -36,6 +38,7 @@ func New(chMgr *channel.Manager, fo *failover.FailoverManager, database *db.Data
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
+		sessions: sessionMgr,
 	}
 }
 
@@ -91,8 +94,9 @@ func (a *Adapter) HandleResponsesAPI(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var req struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+		Model string      `json:"model"`
+		Stream bool        `json:"stream"`
+		Input  interface{} `json:"input"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -109,7 +113,24 @@ func (a *Adapter) HandleResponsesAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.forwardToResponsesAPI(ch, body, r, w)
+	// Create session for multi-turn conversation
+	var messages []session.Message
+	if inputStr, ok := req.Input.(string); ok {
+		messages = append(messages, session.Message{Role: "user", Content: inputStr})
+	} else if inputArr, ok := req.Input.([]interface{}); ok {
+		for _, item := range inputArr {
+			if msg, ok := item.(map[string]interface{}); ok {
+				if role, _ := msg["role"].(string); role != "" {
+					if content, _ := msg["content"].(string); content != "" {
+						messages = append(messages, session.Message{Role: role, Content: content})
+					}
+				}
+			}
+		}
+	}
+	responseID := a.sessions.CreateSession(req.Model, messages)
+
+	a.forwardToResponsesAPI(ch, body, r, w, responseID)
 }
 
 // HandleResponsesCompact handles POST /v1/responses/{response_id}/compact
@@ -125,6 +146,44 @@ func (a *Adapter) HandleResponsesCompact(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Try to get existing session for multi-turn context
+	if _, ok := a.sessions.GetSession(responseID); ok {
+		// Session exists, append new messages to conversation history
+		var body []byte
+		var err error
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			body = []byte{}
+		}
+		defer r.Body.Close()
+
+		// Parse incoming messages and append to session
+		var req struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &req); err == nil && len(req.Messages) > 0 {
+				for _, msg := range req.Messages {
+					a.sessions.AddMessage(responseID, session.Message{Role: msg.Role, Content: msg.Content})
+				}
+			}
+		}
+
+		// Use default model for compact
+		ch, err := a.selectAnyChannel()
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+
+		a.forwardToResponsesCompact(ch, responseID, body, r, w)
+		return
+	}
+
+	// No existing session, create one
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		body = []byte{}
@@ -243,7 +302,7 @@ func (a *Adapter) forwardToClaude(ch *models.Channel, body []byte, r *http.Reque
 }
 
 // forwardToResponsesAPI forwards request to OpenAI Responses API
-func (a *Adapter) forwardToResponsesAPI(ch *models.Channel, body []byte, r *http.Request, w http.ResponseWriter) {
+func (a *Adapter) forwardToResponsesAPI(ch *models.Channel, body []byte, r *http.Request, w http.ResponseWriter, responseID string) {
 	targetURL := fmt.Sprintf("%s/v1/responses", ch.BaseURL)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -280,8 +339,20 @@ func (a *Adapter) forwardToResponsesAPI(ch *models.Channel, body []byte, r *http
 	for k, v := range resp.Header {
 		w.Header()[k] = v
 	}
+	w.Header().Set("X-Response-ID", responseID)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+
+	// Read response and inject response_id
+	respBody, _ := io.ReadAll(resp.Body)
+	var respData map[string]interface{}
+	if err := json.Unmarshal(respBody, &respData); err == nil {
+		respData["id"] = responseID
+		if enhancedResp, err := json.Marshal(respData); err == nil {
+			w.Write(enhancedResp)
+			return
+		}
+	}
+	w.Write(respBody)
 }
 
 // forwardToResponsesCompact forwards request to Responses compact endpoint

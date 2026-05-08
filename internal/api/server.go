@@ -15,6 +15,7 @@ import (
 	"ai-proxy-gateway/internal/failover"
 	"ai-proxy-gateway/internal/models"
 	"ai-proxy-gateway/internal/router"
+	"ai-proxy-gateway/internal/token"
 )
 
 // ProxyHandler 定义代理处理器接口
@@ -93,6 +94,7 @@ func (s *Server) RegisterProxyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/chat/completions", s.proxyMiddleware(s.handleChatCompletions))
 	mux.HandleFunc("/v1/images/generations", s.proxyMiddleware(s.handleImageGeneration))
 	mux.HandleFunc("/v1/models", s.proxyMiddleware(s.handleListModels))
+	mux.HandleFunc("/v1/messages/count_tokens", s.proxyMiddleware(s.handleCountTokens))
 
 	// Native protocol routes
 	if s.protoAdapter != nil {
@@ -225,6 +227,59 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "list",
 		"data":   models,
+	})
+}
+
+// handleCountTokens 统一 token 计数接口
+func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "method not allowed, use POST",
+		})
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to read request body",
+		})
+		return
+	}
+	defer r.Body.Close()
+
+	// Try to detect the format and count tokens
+	var countResp token.CountResponse
+
+	// First try OpenAI format
+	if result, err := token.CountTokensForOpenAI(body); err == nil {
+		countResp = result
+	} else {
+		// Try Claude format
+		if result, err := token.CountTokensForClaude(body); err == nil {
+			countResp = result
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "invalid request format, expected OpenAI or Claude message format",
+			})
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":          "token_count",
+		"model":           countResp.Model,
+		"prompt_tokens":   countResp.PromptTokens,
+		"total_tokens":    countResp.TotalTokens,
+		"completion_tokens": countResp.CompletionTokens,
+		"note":            "Token counts are estimates based on character heuristics",
 	})
 }
 
