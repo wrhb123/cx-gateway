@@ -36,18 +36,18 @@ func (mr *ModelRouter) Reload() error {
 	return nil
 }
 
-// Resolve 根据模型名称返回应处理的渠道 ID 列表和负载均衡策略
-func (mr *ModelRouter) Resolve(modelName string) ([]int64, string) {
+// Resolve 根据模型名称返回应处理的渠道 ID 列表、负载均衡策略和路由前缀
+func (mr *ModelRouter) Resolve(modelName string) ([]int64, string, string) {
 	mr.mu.RLock()
 	defer mr.mu.RUnlock()
 
 	for _, route := range mr.routes {
 		if match(route.Pattern, modelName) {
-			return route.ChannelIDs, route.LoadBalance
+			return route.ChannelIDs, route.LoadBalance, route.RoutePrefix
 		}
 	}
 
-	return nil, ""
+	return nil, "", ""
 }
 
 // match 检查模型名称是否匹配模式（支持 glob）
