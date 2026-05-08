@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/models"
@@ -83,7 +84,7 @@ func (m *Manager) SelectChannel(chType models.ChannelType, strategy string) (*mo
 		idx := counter.Add(1) % int64(len(ids))
 		selectedID = ids[idx]
 	case "weighted":
-		selectedID = weightedSelect(ids, m.channels)
+		selectedID = weightedSelect(ids, m.channels, true)
 	case "random":
 		selectedID = ids[rand.Intn(len(ids))]
 	default:
@@ -93,12 +94,38 @@ func (m *Manager) SelectChannel(chType models.ChannelType, strategy string) (*mo
 	return m.channels[selectedID], nil
 }
 
+// IsInPromotion 检查渠道是否在促销期内
+func IsInPromotion(ch *models.Channel) bool {
+	if ch.PromotionStart == "" || ch.PromotionEnd == "" {
+		return false
+	}
+	start, err1 := time.Parse(time.RFC3339, ch.PromotionStart)
+	end, err2 := time.Parse(time.RFC3339, ch.PromotionEnd)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	now := time.Now()
+	return now.After(start) && now.Before(end)
+}
+
+// ApplyPromotionBoost 如果渠道在促销期内，提升其优先级
+func ApplyPromotionBoost(ch *models.Channel) int {
+	if IsInPromotion(ch) {
+		return ch.Priority + 100 // 促销期内提升 100 优先级
+	}
+	return ch.Priority
+}
+
 // weightedSelect 根据权重选择渠道
-func weightedSelect(ids []int64, channels map[int64]*models.Channel) int64 {
+func weightedSelect(ids []int64, channels map[int64]*models.Channel, applyPromotion bool) int64 {
 	totalWeight := 0
 	for _, id := range ids {
 		if ch, ok := channels[id]; ok {
-			totalWeight += ch.Weight
+			w := ch.Weight
+			if applyPromotion && IsInPromotion(ch) {
+				w *= 2 // 促销期内权重翻倍
+			}
+			totalWeight += w
 		}
 	}
 	if totalWeight == 0 {
@@ -109,7 +136,11 @@ func weightedSelect(ids []int64, channels map[int64]*models.Channel) int64 {
 	current := 0
 	for _, id := range ids {
 		if ch, ok := channels[id]; ok {
-			current += ch.Weight
+			w := ch.Weight
+			if applyPromotion && IsInPromotion(ch) {
+				w *= 2
+			}
+			current += w
 			if r < current {
 				return id
 			}

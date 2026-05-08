@@ -134,15 +134,18 @@ func (db *Database) migrate() error {
 	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN success_count INTEGER DEFAULT 0")
 	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN failure_count INTEGER DEFAULT 0")
 	_, _ = db.Conn.Exec("ALTER TABLE channel_keys ADD COLUMN avg_latency_ms INTEGER DEFAULT 0")
+	// Migration: add promotion window columns
+	_, _ = db.Conn.Exec("ALTER TABLE channels ADD COLUMN promotion_start TEXT DEFAULT ''")
+	_, _ = db.Conn.Exec("ALTER TABLE channels ADD COLUMN promotion_end TEXT DEFAULT ''")
 	return nil
 }
 
 // CreateChannel 创建新渠道
 func (db *Database) CreateChannel(ch *models.Channel) (int64, error) {
 	result, err := db.Conn.Exec(`
-		INSERT INTO channels (name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders)
+		INSERT INTO channels (name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, promotion_start, promotion_end)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders, ch.PromotionStart, ch.PromotionEnd)
 	if err != nil {
 		return 0, err
 	}
@@ -152,9 +155,9 @@ func (db *Database) CreateChannel(ch *models.Channel) (int64, error) {
 // UpdateChannel 更新渠道配置
 func (db *Database) UpdateChannel(ch *models.Channel) error {
 	_, err := db.Conn.Exec(`
-		UPDATE channels SET name=?, type=?, base_url=?, api_key=?, model=?, priority=?, weight=?, enabled=?, max_retries=?, timeout=?, supported_models=?, proxy_url=?, proxy_type=?, custom_headers=?, updated_at=CURRENT_TIMESTAMP
+		UPDATE channels SET name=?, type=?, base_url=?, api_key=?, model=?, priority=?, weight=?, enabled=?, max_retries=?, timeout=?, supported_models=?, proxy_url=?, proxy_type=?, custom_headers=?, promotion_start=?, promotion_end=?, updated_at=CURRENT_TIMESTAMP
 		WHERE id=?
-	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders, ch.ID)
+	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders, ch.PromotionStart, ch.PromotionEnd, ch.ID)
 	return err
 }
 
@@ -168,16 +171,16 @@ func (db *Database) DeleteChannel(id int64) error {
 func (db *Database) GetChannel(id int64) (*models.Channel, error) {
 	ch := &models.Channel{}
 	err := db.Conn.QueryRow(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, promotion_start, promotion_end, created_at, updated_at
 		FROM channels WHERE id=?
-	`, id).Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt)
+	`, id).Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.PromotionStart, &ch.PromotionEnd, &ch.CreatedAt, &ch.UpdatedAt)
 	return ch, err
 }
 
 // ListChannels 列出所有渠道
 func (db *Database) ListChannels() ([]models.Channel, error) {
 	rows, err := db.Conn.Query(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, promotion_start, promotion_end, created_at, updated_at
 		FROM channels ORDER BY priority DESC, id ASC
 	`)
 	if err != nil {
@@ -188,7 +191,7 @@ func (db *Database) ListChannels() ([]models.Channel, error) {
 	var channels []models.Channel
 	for rows.Next() {
 		var ch models.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.PromotionStart, &ch.PromotionEnd, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
 			return nil, err
 		}
 		channels = append(channels, ch)
@@ -199,7 +202,7 @@ func (db *Database) ListChannels() ([]models.Channel, error) {
 // ListEnabledChannelsByType 列出指定类型的已启用渠道
 func (db *Database) ListEnabledChannelsByType(chType models.ChannelType) ([]models.Channel, error) {
 	rows, err := db.Conn.Query(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, promotion_start, promotion_end, created_at, updated_at
 		FROM channels WHERE type=? AND enabled=1 ORDER BY priority DESC, id ASC
 	`, chType)
 	if err != nil {
@@ -210,7 +213,7 @@ func (db *Database) ListEnabledChannelsByType(chType models.ChannelType) ([]mode
 	var channels []models.Channel
 	for rows.Next() {
 		var ch models.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.PromotionStart, &ch.PromotionEnd, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
 			return nil, err
 		}
 		channels = append(channels, ch)

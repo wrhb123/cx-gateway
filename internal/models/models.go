@@ -23,11 +23,13 @@ type Channel struct {
 	Weight          int         `json:"weight"`
 	Enabled         bool        `json:"enabled"`
 	MaxRetries      int         `json:"max_retries"`
-	Timeout         int         `json:"timeout"` // 秒
+	Timeout         int         `json:"timeout"`            // 秒
 	SupportedModels string      `json:"supported_models,omitempty"` // JSON array of model patterns, empty means no limit
 	ProxyURL        string      `json:"proxy_url,omitempty"`        // HTTP/SOCKS5 proxy URL
 	ProxyType       string      `json:"proxy_type,omitempty"`       // "http" or "socks5"
 	CustomHeaders   string      `json:"custom_headers,omitempty"`   // JSON object of custom headers
+	PromotionStart  string      `json:"promotion_start,omitempty"`  // ISO 8601 format, e.g. "2024-01-01T00:00:00Z"
+	PromotionEnd    string      `json:"promotion_end,omitempty"`    // ISO 8601 format
 	CreatedAt       string      `json:"created_at"`
 	UpdatedAt       string      `json:"updated_at"`
 }
