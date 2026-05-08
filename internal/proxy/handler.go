@@ -110,6 +110,11 @@ func (h *Handler) ProxyRequest(w http.ResponseWriter, r *http.Request, model str
 		channelIDs = []int64{ch.ID}
 	}
 
+	clientIP := r.RemoteAddr
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		clientIP = xff
+	}
+
 	var lastErr error
 	for _, chID := range channelIDs {
 		ch, ok := h.channelMgr.GetChannel(chID)
@@ -121,7 +126,31 @@ func (h *Handler) ProxyRequest(w http.ResponseWriter, r *http.Request, model str
 			continue
 		}
 
+		start := time.Now()
 		resp, err := h.forwardRequest(ch, model, body, r, routePrefix)
+		latency := time.Since(start).Milliseconds()
+
+		// Record request log
+		log := &models.RequestLog{
+			RequestID:   r.Header.Get("X-Request-ID"),
+			Model:       model,
+			ChannelID:   chID,
+			ChannelName: ch.Name,
+			Status:      resp.StatusCode,
+			Latency:     latency,
+			Source:      clientIP,
+			Interface:   "proxy",
+		}
+		// Record key mask if available
+		if activeKey, kerr := h.db.GetActiveKeyForChannel(chID); kerr == nil && activeKey != nil {
+			if len(activeKey.APIKey) > 8 {
+				log.KeyMask = activeKey.APIKey[:8] + "..."
+			}
+		} else if len(ch.APIKey) > 8 {
+			log.KeyMask = ch.APIKey[:8] + "..."
+		}
+		h.db.LogRequest(log)
+
 		if err != nil {
 			h.failover.RecordFailure(chID)
 			lastErr = err

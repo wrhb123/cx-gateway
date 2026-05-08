@@ -126,6 +126,10 @@ func (db *Database) migrate() error {
 	_, _ = db.Conn.Exec("ALTER TABLE channels ADD COLUMN custom_headers TEXT DEFAULT ''")
 	// Migration: add route_prefix column if not exists
 	_, _ = db.Conn.Exec("ALTER TABLE model_routes ADD COLUMN route_prefix TEXT DEFAULT ''")
+	// Migration: add log enhancement columns
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN source TEXT DEFAULT ''")
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN interface TEXT DEFAULT ''")
+	_, _ = db.Conn.Exec("ALTER TABLE request_logs ADD COLUMN key_mask TEXT DEFAULT ''")
 	return nil
 }
 
@@ -325,9 +329,9 @@ func (db *Database) UpdateStats(channelID int64, success bool, latency int64, er
 // LogRequest 记录请求日志
 func (db *Database) LogRequest(log *models.RequestLog) error {
 	_, err := db.Conn.Exec(`
-		INSERT INTO request_logs (request_id, model, channel_id, channel_name, status, latency_ms)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency)
+		INSERT INTO request_logs (request_id, model, channel_id, channel_name, status, latency_ms, source, interface, key_mask)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, log.RequestID, log.Model, log.ChannelID, log.ChannelName, log.Status, log.Latency, log.Source, log.Interface, log.KeyMask)
 	return err
 }
 
@@ -393,12 +397,28 @@ func (db *Database) ListAllChannelStats() ([]map[string]interface{}, error) {
 	return results, nil
 }
 
-// GetRequestLogs 获取请求日志（分页）
-func (db *Database) GetRequestLogs(limit, offset int) ([]map[string]interface{}, error) {
-	rows, err := db.Conn.Query(`
-		SELECT request_id, model, channel_id, channel_name, status, latency_ms, created_at
-		FROM request_logs ORDER BY created_at DESC LIMIT ? OFFSET ?
-	`, limit, offset)
+// GetRequestLogs 获取请求日志（分页，支持过滤）
+func (db *Database) GetRequestLogs(limit, offset int, channelID, status int64, model string) ([]map[string]interface{}, error) {
+	q := "SELECT request_id, model, channel_id, channel_name, status, latency_ms, source, interface, key_mask, created_at FROM request_logs WHERE 1=1"
+	args := []interface{}{}
+
+	if channelID > 0 {
+		q += " AND channel_id=?"
+		args = append(args, channelID)
+	}
+	if status > 0 {
+		q += " AND status=?"
+		args = append(args, status)
+	}
+	if model != "" {
+		q += " AND model=?"
+		args = append(args, model)
+	}
+
+	q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := db.Conn.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -406,9 +426,9 @@ func (db *Database) GetRequestLogs(limit, offset int) ([]map[string]interface{},
 
 	var results []map[string]interface{}
 	for rows.Next() {
-		var reqID, model, chName, createdAt string
+		var reqID, model, chName, source, iface, keyMask, createdAt string
 		var chID, status, latency sql.NullInt64
-		if err := rows.Scan(&reqID, &model, &chID, &chName, &status, &latency, &createdAt); err != nil {
+		if err := rows.Scan(&reqID, &model, &chID, &chName, &status, &latency, &source, &iface, &keyMask, &createdAt); err != nil {
 			return nil, err
 		}
 		results = append(results, map[string]interface{}{
@@ -418,6 +438,9 @@ func (db *Database) GetRequestLogs(limit, offset int) ([]map[string]interface{},
 			"channel_name": chName,
 			"status":       status,
 			"latency_ms":   latency,
+			"source":       source,
+			"interface":    iface,
+			"key_mask":     keyMask,
 			"created_at":   createdAt,
 		})
 	}

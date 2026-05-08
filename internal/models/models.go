@@ -76,6 +76,9 @@ type RequestLog struct {
 	ChannelName string `json:"channel_name"`
 	Status      int    `json:"status"`
 	Latency     int64  `json:"latency_ms"`
+	Source      string `json:"source,omitempty"`       // 客户端 IP
+	Interface   string `json:"interface,omitempty"`    // "proxy" or "admin"
+	KeyMask     string `json:"key_mask,omitempty"`     // 脱敏 key 前缀
 	CreatedAt   string `json:"created_at"`
 }
 

@@ -661,7 +661,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs, err := s.db.GetRequestLogs(limit, offset)
+	logs, err := s.db.GetRequestLogs(limit, offset, 0, 0, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
