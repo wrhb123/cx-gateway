@@ -25,7 +25,7 @@ func TestTranslateToClaude(t *testing.T) {
 		"stream":      false,
 	})
 
-	reqBody, targetURL, err := h.translateToClaude("gpt-4o", body, ch)
+	reqBody, targetURL, err := h.translateToClaude("gpt-4o", body, ch, "v1")
 	if err != nil {
 		t.Fatalf("translateToClaude() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestTranslateToClaudeInvalidJSON(t *testing.T) {
 	h := &Handler{}
 	ch := &models.Channel{BaseURL: "https://api.anthropic.com", Model: "claude-3"}
 
-	_, _, err := h.translateToClaude("gpt-4o", []byte("not json"), ch)
+	_, _, err := h.translateToClaude("gpt-4o", []byte("not json"), ch, "v1")
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
@@ -84,7 +84,7 @@ func TestTranslateToClaudeNoSystemPrompt(t *testing.T) {
 		"stream":     false,
 	})
 
-	reqBody, _, err := h.translateToClaude("gpt-4o", body, ch)
+	reqBody, _, err := h.translateToClaude("gpt-4o", body, ch, "v1")
 	if err != nil {
 		t.Fatalf("translateToClaude() error = %v", err)
 	}

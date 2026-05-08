@@ -59,8 +59,23 @@ func (db *Database) migrate() error {
 		enabled INTEGER DEFAULT 1,
 		max_retries INTEGER DEFAULT 3,
 		timeout INTEGER DEFAULT 120,
+		supported_models TEXT DEFAULT '',
+		proxy_url TEXT DEFAULT '',
+		proxy_type TEXT DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS channel_keys (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		channel_id INTEGER NOT NULL,
+		api_key TEXT NOT NULL,
+		status TEXT DEFAULT 'active',
+		priority INTEGER DEFAULT 0,
+		usage_count INTEGER DEFAULT 0,
+		last_used DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
 	);
 
 	CREATE TABLE IF NOT EXISTS model_routes (
@@ -69,6 +84,7 @@ func (db *Database) migrate() error {
 		channel_ids TEXT NOT NULL,
 		load_balance TEXT DEFAULT 'round_robin',
 		priority INTEGER DEFAULT 0,
+		route_prefix TEXT DEFAULT '',
 		enabled INTEGER DEFAULT 1
 	);
 
@@ -99,17 +115,26 @@ func (db *Database) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_channels_enabled ON channels(enabled);
 	CREATE INDEX IF NOT EXISTS idx_routes_pattern ON model_routes(pattern);
 	CREATE INDEX IF NOT EXISTS idx_logs_created ON request_logs(created_at);
+	CREATE INDEX IF NOT EXISTS idx_channel_keys_channel ON channel_keys(channel_id);
+	CREATE INDEX IF NOT EXISTS idx_channel_keys_status ON channel_keys(status);
 	`
 	_, err := db.Conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add custom_headers column if not exists
+	_, _ = db.Conn.Exec("ALTER TABLE channels ADD COLUMN custom_headers TEXT DEFAULT ''")
+	// Migration: add route_prefix column if not exists
+	_, _ = db.Conn.Exec("ALTER TABLE model_routes ADD COLUMN route_prefix TEXT DEFAULT ''")
+	return nil
 }
 
 // CreateChannel 创建新渠道
 func (db *Database) CreateChannel(ch *models.Channel) (int64, error) {
 	result, err := db.Conn.Exec(`
-		INSERT INTO channels (name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout)
+		INSERT INTO channels (name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders)
 	if err != nil {
 		return 0, err
 	}
@@ -119,9 +144,9 @@ func (db *Database) CreateChannel(ch *models.Channel) (int64, error) {
 // UpdateChannel 更新渠道配置
 func (db *Database) UpdateChannel(ch *models.Channel) error {
 	_, err := db.Conn.Exec(`
-		UPDATE channels SET name=?, type=?, base_url=?, api_key=?, model=?, priority=?, weight=?, enabled=?, max_retries=?, timeout=?, updated_at=CURRENT_TIMESTAMP
+		UPDATE channels SET name=?, type=?, base_url=?, api_key=?, model=?, priority=?, weight=?, enabled=?, max_retries=?, timeout=?, supported_models=?, proxy_url=?, proxy_type=?, custom_headers=?, updated_at=CURRENT_TIMESTAMP
 		WHERE id=?
-	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.ID)
+	`, ch.Name, ch.Type, ch.BaseURL, ch.APIKey, ch.Model, ch.Priority, ch.Weight, ch.Enabled, ch.MaxRetries, ch.Timeout, ch.SupportedModels, ch.ProxyURL, ch.ProxyType, ch.CustomHeaders, ch.ID)
 	return err
 }
 
@@ -135,16 +160,16 @@ func (db *Database) DeleteChannel(id int64) error {
 func (db *Database) GetChannel(id int64) (*models.Channel, error) {
 	ch := &models.Channel{}
 	err := db.Conn.QueryRow(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
 		FROM channels WHERE id=?
-	`, id).Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.CreatedAt, &ch.UpdatedAt)
+	`, id).Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt)
 	return ch, err
 }
 
 // ListChannels 列出所有渠道
 func (db *Database) ListChannels() ([]models.Channel, error) {
 	rows, err := db.Conn.Query(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
 		FROM channels ORDER BY priority DESC, id ASC
 	`)
 	if err != nil {
@@ -155,7 +180,7 @@ func (db *Database) ListChannels() ([]models.Channel, error) {
 	var channels []models.Channel
 	for rows.Next() {
 		var ch models.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
 			return nil, err
 		}
 		channels = append(channels, ch)
@@ -166,7 +191,7 @@ func (db *Database) ListChannels() ([]models.Channel, error) {
 // ListEnabledChannelsByType 列出指定类型的已启用渠道
 func (db *Database) ListEnabledChannelsByType(chType models.ChannelType) ([]models.Channel, error) {
 	rows, err := db.Conn.Query(`
-		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, created_at, updated_at
+		SELECT id, name, type, base_url, api_key, model, priority, weight, enabled, max_retries, timeout, supported_models, proxy_url, proxy_type, custom_headers, created_at, updated_at
 		FROM channels WHERE type=? AND enabled=1 ORDER BY priority DESC, id ASC
 	`, chType)
 	if err != nil {
@@ -177,7 +202,7 @@ func (db *Database) ListEnabledChannelsByType(chType models.ChannelType) ([]mode
 	var channels []models.Channel
 	for rows.Next() {
 		var ch models.Channel
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.BaseURL, &ch.APIKey, &ch.Model, &ch.Priority, &ch.Weight, &ch.Enabled, &ch.MaxRetries, &ch.Timeout, &ch.SupportedModels, &ch.ProxyURL, &ch.ProxyType, &ch.CustomHeaders, &ch.CreatedAt, &ch.UpdatedAt); err != nil {
 			return nil, err
 		}
 		channels = append(channels, ch)
@@ -191,20 +216,32 @@ func (db *Database) CreateRoute(route *models.ModelRoute) (int64, error) {
 	for _, id := range route.ChannelIDs {
 		ids = append(ids, strconv.FormatInt(id, 10))
 	}
-	idsStr := strings.Join(ids, ",")
 	result, err := db.Conn.Exec(`
-		INSERT INTO model_routes (pattern, channel_ids, load_balance, priority, enabled)
-		VALUES (?, ?, ?, ?, ?)
-	`, route.Pattern, idsStr, route.LoadBalance, route.Priority, route.Enabled)
+		INSERT INTO model_routes (pattern, channel_ids, load_balance, priority, route_prefix, enabled)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, route.Pattern, strings.Join(ids, ","), route.LoadBalance, route.Priority, route.RoutePrefix, route.Enabled)
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
 }
 
+// UpdateRoute 更新路由规则
+func (db *Database) UpdateRoute(route *models.ModelRoute) error {
+	var ids []string
+	for _, id := range route.ChannelIDs {
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	_, err := db.Conn.Exec(`
+		UPDATE model_routes SET pattern=?, channel_ids=?, load_balance=?, priority=?, route_prefix=?, enabled=?
+		WHERE id=?
+	`, route.Pattern, strings.Join(ids, ","), route.LoadBalance, route.Priority, route.RoutePrefix, route.Enabled, route.ID)
+	return err
+}
+
 // ListRoutes 列出所有已启用的路由规则
 func (db *Database) ListRoutes() ([]models.ModelRoute, error) {
-	rows, err := db.Conn.Query("SELECT id, pattern, channel_ids, load_balance, priority, enabled FROM model_routes ORDER BY priority DESC")
+	rows, err := db.Conn.Query("SELECT id, pattern, channel_ids, load_balance, priority, route_prefix, enabled FROM model_routes ORDER BY priority DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +251,7 @@ func (db *Database) ListRoutes() ([]models.ModelRoute, error) {
 	for rows.Next() {
 		var r models.ModelRoute
 		var idsStr string
-		if err := rows.Scan(&r.ID, &r.Pattern, &idsStr, &r.LoadBalance, &r.Priority, &r.Enabled); err != nil {
+		if err := rows.Scan(&r.ID, &r.Pattern, &idsStr, &r.LoadBalance, &r.Priority, &r.RoutePrefix, &r.Enabled); err != nil {
 			return nil, err
 		}
 		r.ChannelIDs = parseIDs(idsStr)
@@ -226,20 +263,6 @@ func (db *Database) ListRoutes() ([]models.ModelRoute, error) {
 // DeleteRoute 删除路由规则
 func (db *Database) DeleteRoute(id int64) error {
 	_, err := db.Conn.Exec("DELETE FROM model_routes WHERE id=?", id)
-	return err
-}
-
-// UpdateRoute 更新路由规则
-func (db *Database) UpdateRoute(route *models.ModelRoute) error {
-	var ids []string
-	for _, id := range route.ChannelIDs {
-		ids = append(ids, strconv.FormatInt(id, 10))
-	}
-	idsStr := strings.Join(ids, ",")
-	_, err := db.Conn.Exec(`
-		UPDATE model_routes SET pattern=?, channel_ids=?, load_balance=?, priority=?, enabled=?
-		WHERE id=?
-	`, route.Pattern, idsStr, route.LoadBalance, route.Priority, route.Enabled, route.ID)
 	return err
 }
 
@@ -457,6 +480,92 @@ func (db *Database) ResetChannelStats(channelID int64) error {
 		WHERE channel_id=?
 	`, channelID)
 	return err
+}
+
+// CreateChannelKey 创建渠道 Key
+func (db *Database) CreateChannelKey(ck *models.ChannelKey) (int64, error) {
+	if ck.Status == "" {
+		ck.Status = "active"
+	}
+	result, err := db.Conn.Exec(`
+		INSERT INTO channel_keys (channel_id, api_key, status, priority)
+		VALUES (?, ?, ?, ?)
+	`, ck.ChannelID, ck.APIKey, ck.Status, ck.Priority)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// ListChannelKeys 列出渠道的所有 Key
+func (db *Database) ListChannelKeys(channelID int64) ([]models.ChannelKey, error) {
+	rows, err := db.Conn.Query(`
+		SELECT id, channel_id, api_key, status, priority, usage_count,
+			COALESCE(last_used, '') as last_used, created_at
+		FROM channel_keys WHERE channel_id=? ORDER BY priority DESC, id ASC
+	`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []models.ChannelKey
+	for rows.Next() {
+		var k models.ChannelKey
+		if err := rows.Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+// GetChannelKey 获取单个 Key
+func (db *Database) GetChannelKey(id int64) (*models.ChannelKey, error) {
+	k := &models.ChannelKey{}
+	err := db.Conn.QueryRow(`
+		SELECT id, channel_id, api_key, status, priority, usage_count,
+			COALESCE(last_used, '') as last_used, created_at
+		FROM channel_keys WHERE id=?
+	`, id).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt)
+	return k, err
+}
+
+// DeleteChannelKey 删除渠道 Key
+func (db *Database) DeleteChannelKey(id int64) error {
+	_, err := db.Conn.Exec("DELETE FROM channel_keys WHERE id=?", id)
+	return err
+}
+
+// UpdateChannelKeyPriority 更新 Key 优先级
+func (db *Database) UpdateChannelKeyPriority(id int64, priority int) error {
+	_, err := db.Conn.Exec("UPDATE channel_keys SET priority=? WHERE id=?", priority, id)
+	return err
+}
+
+// UpdateChannelKeyStatus 更新 Key 状态
+func (db *Database) UpdateChannelKeyStatus(id int64, status string) error {
+	_, err := db.Conn.Exec("UPDATE channel_keys SET status=? WHERE id=?", status, id)
+	return err
+}
+
+// IncrementKeyUsage 增加 Key 使用计数
+func (db *Database) IncrementKeyUsage(id int64) error {
+	_, err := db.Conn.Exec(`
+		UPDATE channel_keys SET usage_count=usage_count+1, last_used=CURRENT_TIMESTAMP WHERE id=?
+	`, id)
+	return err
+}
+
+// GetActiveKeyForChannel 为渠道获取一个可用的 active key（按优先级排序后取第一个）
+func (db *Database) GetActiveKeyForChannel(channelID int64) (*models.ChannelKey, error) {
+	k := &models.ChannelKey{}
+	err := db.Conn.QueryRow(`
+		SELECT id, channel_id, api_key, status, priority, usage_count,
+			COALESCE(last_used, '') as last_used, created_at
+		FROM channel_keys WHERE channel_id=? AND status='active' ORDER BY priority DESC, id ASC LIMIT 1
+	`, channelID).Scan(&k.ID, &k.ChannelID, &k.APIKey, &k.Status, &k.Priority, &k.UsageCount, &k.LastUsed, &k.CreatedAt)
+	return k, err
 }
 
 // Close 关闭数据库连接

@@ -7,7 +7,7 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 
 ### 1.1 Claude Messages API
 - [x] `POST /v1/messages` — Anthropic Claude Messages 协议代理
-- [ ] 支持 `system` prompt、`tools`、`tool_use` 等完整特性（透传模式已支持）
+- [x] 支持 `system` prompt、`tools`、`tool_use` 等完整特性（透传模式已支持）
 - [x] 支持 SSE stream (`stream: true`)（透传模式）
 
 ### 1.2 Codex Responses API
@@ -29,39 +29,41 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 ## 2. Channel Key Management (Multi-Key Rotation)
 
 ### 2.1 Data Model
-- [ ] 新增 `channel_keys` 表（id, channel_id, api_key, status, priority, usage_count, last_used, created_at）
-- [ ] 渠道与 Key 一对多关系
-- [ ] 现有 `channels.api_key` 迁移到 `channel_keys`
+- [x] 新增 `channel_keys` 表（id, channel_id, api_key, status, priority, usage_count, last_used, created_at）
+- [x] 渠道与 Key 一对多关系
+- [x] 现有 `channels.api_key` 作为 fallback 保留
 
 ### 2.2 API Endpoints
-- [ ] `POST /api/channels/{id}/keys` — 添加 Key
-- [ ] `GET /api/channels/{id}/keys` — 列出 Key 列表
-- [ ] `DELETE /api/channels/{id}/keys/{key_id}` — 删除 Key
-- [ ] `PUT /api/channels/{id}/keys/{key_id}/priority` — 置顶/置底/调整优先级
-- [ ] `PUT /api/channels/{id}/keys/{key_id}/restore` — 恢复已禁用的 Key
+- [x] `POST /api/channels/{id}/keys` — 添加 Key
+- [x] `GET /api/channels/{id}/keys` — 列出 Key 列表
+- [x] `DELETE /api/channels/{id}/keys/{key_id}` — 删除 Key
+- [x] `PUT /api/channels/{id}/keys/{key_id}` — 更新优先级/状态
+- [x] `PUT /api/channels/{id}/keys/{key_id}/restore` — 通过 PUT 设置 status='active' 恢复
 
 ### 2.3 Channel Manager Update
-- [ ] `SelectChannel` 改为返回 Key 而非整个 Channel（支持单 Channel 多 Key 轮转）
-- [ ] 支持 Key 级别的 round_robin / weighted / random 策略
+- [x] 代理请求时优先使用 active 的 channel_keys（按优先级排序取第一个）
+- [x] 使用 Key 时自动增加 usage_count 和更新 last_used
+- [x] 无 channel_keys 时 fallback 到 channel.api_key
 
 ## 3. Channel Advanced Features
 
 ### 3.1 Per-Channel Proxy Support
-- [ ] Channel 模型新增 `proxy_url`、`proxy_type`（http/socks5）字段
-- [ ] HTTP 请求通过渠道配置的代理发送
+- [x] Channel 模型新增 `proxy_url`、`proxy_type`（http/socks5）字段
+- [x] HTTP 请求通过渠道配置的代理发送（Transport 层实现）
 
 ### 3.2 Custom Request Headers
-- [ ] Channel 模型新增 `custom_headers` 字段（JSON）
-- [ ] 代理请求时附加自定义 headers
+- [x] Channel 模型新增 `custom_headers` 字段（JSON）
+- [x] 代理请求时附加自定义 headers
 
 ### 3.3 Model Allowlist/Whitelist
-- [ ] Channel 模型新增 `supported_models` 字段（JSON 数组，支持通配符如 `gpt-*`）
-- [ ] 请求路由时校验模型是否在渠道白名单内
-- [ ] 白名单为空表示不限制
+- [x] Channel 模型新增 `supported_models` 字段（JSON 数组，支持通配符如 `gpt-*`）
+- [x] 请求路由时校验模型是否在渠道白名单内
+- [x] 白名单为空表示不限制
 
 ### 3.4 Custom Route Prefix
-- [ ] Route 模型新增 `route_prefix` 字段
-- [ ] 支持 `:routePrefix/v1/chat/completions` 等自定义前缀路由
+- [x] Route 模型新增 `route_prefix` 字段
+- [x] 支持 `:routePrefix/v1/chat/completions` 等自定义前缀路由
+- [x] 默认使用 `v1` 作为前缀
 
 ### 3.5 Drag-and-Drop Priority
 - [ ] 前端支持拖拽调整渠道优先级
@@ -72,8 +74,8 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [ ] 在促销期内自动提升渠道权重/优先级
 
 ### 3.7 Channel Resume
-- [ ] `POST /api/channels/{id}/resume` — 恢复被禁用的渠道
-- [ ] 渠道从 failover 状态中恢复并重新加入调度
+- [x] `POST /api/channels/{id}/resume` — 恢复被禁用的渠道
+- [x] 渠道从 failover 状态中恢复并重新加入调度
 
 ## 4. Capability Testing
 

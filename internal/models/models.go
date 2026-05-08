@@ -13,19 +13,35 @@ const (
 
 // Channel 表示一个 API 渠道/提供商配置
 type Channel struct {
-	ID         int64       `json:"id"`
-	Name       string      `json:"name"`
-	Type       ChannelType `json:"type"`
-	BaseURL    string      `json:"base_url"`
-	APIKey     string      `json:"api_key"`
-	Model      string      `json:"model"`
-	Priority   int         `json:"priority"`
-	Weight     int         `json:"weight"`
-	Enabled    bool        `json:"enabled"`
-	MaxRetries int         `json:"max_retries"`
-	Timeout    int         `json:"timeout"` // 秒
-	CreatedAt  string      `json:"created_at"`
-	UpdatedAt  string      `json:"updated_at"`
+	ID              int64       `json:"id"`
+	Name            string      `json:"name"`
+	Type            ChannelType `json:"type"`
+	BaseURL         string      `json:"base_url"`
+	APIKey          string      `json:"api_key"`
+	Model           string      `json:"model"`
+	Priority        int         `json:"priority"`
+	Weight          int         `json:"weight"`
+	Enabled         bool        `json:"enabled"`
+	MaxRetries      int         `json:"max_retries"`
+	Timeout         int         `json:"timeout"` // 秒
+	SupportedModels string      `json:"supported_models,omitempty"` // JSON array of model patterns, empty means no limit
+	ProxyURL        string      `json:"proxy_url,omitempty"`        // HTTP/SOCKS5 proxy URL
+	ProxyType       string      `json:"proxy_type,omitempty"`       // "http" or "socks5"
+	CustomHeaders   string      `json:"custom_headers,omitempty"`   // JSON object of custom headers
+	CreatedAt       string      `json:"created_at"`
+	UpdatedAt       string      `json:"updated_at"`
+}
+
+// ChannelKey 表示渠道下的一个 API Key
+type ChannelKey struct {
+	ID         int64  `json:"id"`
+	ChannelID  int64  `json:"channel_id"`
+	APIKey     string `json:"api_key"`
+	Status     string `json:"status"`     // "active", "disabled", "exhausted"
+	Priority   int    `json:"priority"`   // higher = higher priority
+	UsageCount int64  `json:"usage_count"`
+	LastUsed   string `json:"last_used,omitempty"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // ChannelStats 跟踪渠道健康状态和使用情况
@@ -43,7 +59,8 @@ type ChannelStats struct {
 // ModelRoute 定义模型名称的路由规则
 type ModelRoute struct {
 	ID          int64   `json:"id"`
-	Pattern     string  `json:"pattern"` // glob 模式，如 "gpt-*", "claude-*"
+	Pattern     string  `json:"pattern"`      // glob 模式，如 "gpt-*", "claude-*"
+	RoutePrefix string  `json:"route_prefix"` // optional URL prefix, e.g. "v1"
 	ChannelIDs  []int64 `json:"channel_ids"`
 	LoadBalance string  `json:"load_balance"` // "round_robin", "weighted", "random"
 	Priority    int     `json:"priority"`
