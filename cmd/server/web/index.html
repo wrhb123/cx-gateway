@@ -794,9 +794,48 @@
                             <div style="display:flex;align-items:center;gap:8px;">
                                 <span class="badge" :class="log.status >= 400 ? 'badge-danger' : 'badge-success'">{{ log.status }}</span>
                                 <span style="color:var(--text-secondary);">{{ log.latency_ms }}ms</span>
+                    </div>
+                </div>
+                <div v-if="modalType==='keys'">
+                    <div style="margin-bottom:16px;">
+                        <div class="form-row" style="align-items:end;gap:8px;">
+                            <div class="form-group" style="flex:1;">
+                                <label>API Key</label>
+                                <input v-model="newKeyForm.api_key" placeholder="sk-...">
                             </div>
+                            <div class="form-group" style="width:80px;">
+                                <label>优先级</label>
+                                <input v-model.number="newKeyForm.priority" type="number">
+                            </div>
+                            <button class="btn btn-primary" @click="addKey" style="margin-bottom:2px;">+ 添加</button>
                         </div>
                     </div>
+                    <table v-if="channelKeys.length" style="width:100%;font-size:13px;">
+                        <thead>
+                            <tr><th>ID</th><th>Key (脱敏)</th><th>状态</th><th>优先级</th><th>使用次数</th><th>操作</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="k in channelKeys" :key="k.id">
+                                <td>{{ k.id }}</td>
+                                <td>{{ k.api_key.substring(0,8) }}...</td>
+                                <td>
+                                    <span class="badge" :class="{'badge-success':k.status==='active','badge-warning':k.status==='disabled','badge-danger':k.status==='exhausted'}">
+                                        {{ k.status }}
+                                    </span>
+                                </td>
+                                <td>{{ k.priority }}</td>
+                                <td>{{ k.usage_count }}</td>
+                                <td>
+                                    <button class="btn btn-ghost btn-sm" v-if="k.status!=='active'" @click="updateKeyStatus(k.id,'active')" title="启用">&#9989;</button>
+                                    <button class="btn btn-ghost btn-sm" v-if="k.status==='active'" @click="updateKeyStatus(k.id,'disabled')" title="禁用">&#9940;</button>
+                                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" @click="deleteKey(k.id)" title="删除">&#128465;</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-else class="empty"><p>暂无额外 Key</p></div>
+                </div>
+            </div>
                     <div v-else class="empty">暂无请求记录</div>
                 </div>
             </div>
@@ -842,6 +881,9 @@
                                 <button class="btn btn-ghost btn-sm" @click="pingChannel(ch)" :disabled="pinging[ch.id]" title="测试连通性">
                                     {{ pinging[ch.id] ? '&#8987;' : '&#128269;' }}
                                 </button>
+                                <button class="btn btn-ghost btn-sm" @click="testChannel(ch)" title="能力测试">&#129523;</button>
+                                <button class="btn btn-ghost btn-sm" @click="manageKeys(ch)" title="管理 Keys">&#128273;</button>
+                                <button v-if="!ch.enabled" class="btn btn-ghost btn-sm" style="color:var(--success);" @click="resumeChannel(ch)" title="恢复">&#8634;</button>
                                 <button class="btn btn-ghost btn-sm" style="color:var(--danger);" @click="deleteChannel(ch.id)" title="删除">&#128465;</button>
                             </td>
                         </tr>
@@ -1024,39 +1066,10 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Base URL *</label>
-                        <input v-model="form.base_url" required placeholder="https://api.openai.com">
+                        <label>自定义请求头 (JSON)</label>
+                        <input v-model="form.custom_headers" placeholder='{"X-Custom":"value"}'>
                     </div>
                     <div class="form-group">
-                        <label>API Key *</label>
-                        <input v-model="form.api_key" :type="showKey?'text':'password'" placeholder="sk-...">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>模型 *</label>
-                            <input v-model="form.model" required placeholder="gpt-4o">
-                        </div>
-                        <div class="form-group">
-                            <label>优先级</label>
-                            <input v-model.number="form.priority" type="number" placeholder="0">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>权重</label>
-                            <input v-model.number="form.weight" type="number" min="1" placeholder="1">
-                        </div>
-                        <div class="form-group">
-                            <label>最大重试</label>
-                            <input v-model.number="form.max_retries" type="number" min="0" placeholder="3">
-                        </div>
-                        <div class="form-group">
-                            <label>超时(秒)</label>
-                            <input v-model.number="form.timeout" type="number" min="1" placeholder="120">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="toggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
                             <input type="checkbox" v-model="form.enabled">
                             <span class="slider"></span>
                             <span>启用</span>
@@ -1066,10 +1079,15 @@
                 <div v-if="modalType==='route'">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>匹配模式 *</label>
-                            <input v-model="form.pattern" required placeholder="gpt-*">
+                            <label>优先级</label>
+                            <input v-model.number="form.priority" type="number" placeholder="0">
                         </div>
                         <div class="form-group">
+                            <label>路由前缀</label>
+                            <input v-model="form.route_prefix" placeholder="v1（留空默认 v1）">
+                        </div>
+                    </div>
+                    <div class="form-group">
                             <label>渠道 IDs (逗号分隔) *</label>
                             <input v-model="form.channel_ids" required placeholder="1,2,3">
                         </div>
@@ -1088,6 +1106,7 @@
                             <input v-model.number="form.priority" type="number" placeholder="0">
                         </div>
                     </div>
+                    <div class="form-group">
                     <div class="form-group">
                         <label class="toggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
                             <input type="checkbox" v-model="form.enabled">
@@ -1132,6 +1151,8 @@ createApp({
         const isDark = ref(false);
         const showKey = ref(false);
         const pinging = reactive({});
+        const channelKeys = ref([]);
+        const newKeyForm = reactive({ api_key: '', priority: 0 });
         const trafficChart = ref(null);
         const trafficChartType = ref('bar');
         let chartInstance = null;
@@ -1211,7 +1232,7 @@ createApp({
         function showAddChannel() {
             modalType.value = 'channel';
             modalTitle.value = '添加渠道';
-            Object.assign(form, { type: 'openai_chat', priority: 0, weight: 1, enabled: true, max_retries: 3, timeout: 120 });
+            Object.assign(form, { type: 'openai_chat', priority: 0, weight: 1, enabled: true, max_retries: 3, timeout: 120, supported_models: '', proxy_url: '', proxy_type: '' });
             showModal.value = true;
         }
 
@@ -1257,6 +1278,89 @@ createApp({
                 toast('Ping 请求失败', 'error');
             } finally {
                 pinging[ch.id] = false;
+            }
+        }
+
+        async function resumeChannel(ch) {
+            try {
+                await api('/api/channels/' + ch.id + '/resume', { method: 'POST' });
+                toast('渠道已恢复', 'success');
+                loadData();
+            } catch (e) {
+                toast('恢复失败', 'error');
+            }
+        }
+
+        async function testChannel(ch) {
+            try {
+                const res = await fetch('/api/channels/' + ch.id + '/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ models: [] })
+                });
+                const data = await res.json();
+                let msg = '测试结果:\n';
+                data.results.forEach(r => {
+                    msg += r.model + ': ' + (r.success ? 'OK' : 'FAIL') + ' (' + r.latency_ms + 'ms)\n';
+                });
+                alert(msg);
+            } catch (e) {
+                toast('测试失败', 'error');
+            }
+        }
+
+        function manageKeys(ch) {
+            modalType.value = 'keys';
+            modalTitle.value = '管理 Keys - ' + ch.name;
+            form.channel_id = ch.id;
+            showModal.value = true;
+            loadKeys(ch.id);
+        }
+
+        async function loadKeys(channelId) {
+            try {
+                const res = await fetch('/api/channels/' + channelId + '/keys');
+                channelKeys.value = await res.json();
+            } catch (e) {
+                toast('加载 Keys 失败', 'error');
+            }
+        }
+
+        async function addKey() {
+            try {
+                await api('/api/channels/' + form.channel_id + '/keys', {
+                    method: 'POST',
+                    body: JSON.stringify({ api_key: newKeyForm.api_key, priority: newKeyForm.priority || 0, status: 'active' })
+                });
+                toast('Key 已添加', 'success');
+                newKeyForm.api_key = '';
+                newKeyForm.priority = 0;
+                loadKeys(form.channel_id);
+            } catch (e) {
+                toast('添加失败', 'error');
+            }
+        }
+
+        async function updateKeyStatus(keyId, status) {
+            try {
+                await api('/api/channels/' + form.channel_id + '/keys/' + keyId, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status })
+                });
+                loadKeys(form.channel_id);
+            } catch (e) {
+                toast('更新失败', 'error');
+            }
+        }
+
+        async function deleteKey(keyId) {
+            if (!confirm('确定删除此 Key？')) return;
+            try {
+                await fetch('/api/channels/' + form.channel_id + '/keys/' + keyId, { method: 'DELETE' });
+                toast('Key 已删除', 'success');
+                loadKeys(form.channel_id);
+            } catch (e) {
+                toast('删除失败', 'error');
             }
         }
 
@@ -1450,11 +1554,12 @@ createApp({
         return {
             activeTab, channels, routes, stats, trafficStats, logs, recentLogs,
             showModal, modalType, modalTitle, form, toasts, isDark, showKey, pinging,
-            trafficChart, trafficChartType,
+            trafficChart, trafficChartType, channelKeys, newKeyForm,
             pageTitle, pageDesc, activeChannels, totalRequests,
             trafficTotal, trafficSuccess, trafficFail, trafficAvgLatency,
             loadData, loadLogs, showAddChannel, editChannel, toggleChannel, deleteChannel,
-            pingChannel, showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
+            pingChannel, resumeChannel, testChannel, manageKeys, loadKeys, addKey, updateKeyStatus, deleteKey,
+            showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
             getChannelName, successRate, formatTime, typeName, typeDot, lbName,
             toggleDark, toast,
             isLoggedIn, loginForm, loginError, loggingIn, doLogin, doLogout
