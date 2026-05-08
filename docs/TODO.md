@@ -70,8 +70,8 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [ ] 后端持久化 priority 排序
 
 ### 3.6 Promotion Window
-- [ ] Channel 模型新增 `promotion_start`、`promotion_end` 字段
-- [ ] 在促销期内自动提升渠道权重/优先级
+- [x] Channel 模型新增 `promotion_start`、`promotion_end` 字段
+- [x] 在促销期内自动提升渠道权重/优先级
 
 ### 3.7 Channel Resume
 - [x] `POST /api/channels/{id}/resume` — 恢复被禁用的渠道
@@ -80,9 +80,9 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 ## 4. Capability Testing
 
 ### 4.1 Per-Model Testing
-- [ ] `POST /api/channels/{id}/test` — 对渠道支持的模型逐一测试
-- [ ] 返回每个模型的可用性、延迟、响应体摘要
-- [ ] 前端弹窗展示测试进度和结果
+- [x] `POST /api/channels/{id}/test` — 对渠道支持的模型逐一测试
+- [x] 返回每个模型的可用性、延迟、响应体摘要
+- [x] 前端弹窗展示测试进度和结果
 
 ### 4.2 Channel Details Modal
 - [ ] 前端渠道详情弹窗（配置、统计、日志）
@@ -95,39 +95,39 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 - [ ] 前端支持按协议切换指标视图
 
 ### 5.2 Key-Level Metrics
-- [ ] Key 级别的请求数、成功率、延迟统计
-- [ ] `channel_keys` 表关联指标
+- [x] Key 级别的请求数、成功率、延迟统计
+- [x] `channel_keys` 表关联指标
 
 ### 5.3 Model-Level Historical Stats
 - [ ] 按模型维度的历史统计
 - [ ] 新增 `model_stats` 表或扩展 `channel_stats`
 
 ### 5.4 Request Log Enhancement
-- [ ] 日志新增 `source`（客户端 IP）、`interface`（代理/管理）、`key_mask`（脱敏 key 前缀）字段
-- [ ] 日志支持按渠道、模型、状态码过滤
+- [x] 日志新增 `source`（客户端 IP）、`interface`（代理/管理）、`key_mask`（脱敏 key 前缀）字段
+- [x] 日志支持按渠道、模型、状态码过滤
 
 ## 6. Deployment & Infrastructure
 
 ### 6.1 Health Check Endpoint
-- [ ] `GET /health` — 返回服务状态（数据库连接、渠道数量、运行时间）
-- [ ] 返回 JSON：`{ status: "ok", uptime: "1h2m3s", db: "connected", channels: 5 }`
+- [x] `GET /health` — 返回服务状态（数据库连接、渠道数量、运行时间）
+- [x] 返回 JSON：`{ status: "ok", uptime: "1h2m3s", db: "connected", channels: 5 }`
 
 ### 6.2 Version Management
-- [ ] 编译时注入版本号（`-ldflags "-X main.version=..."`）
-- [ ] `/api/version` 返回版本信息
-- [ ] 前端展示当前版本
+- [x] 编译时注入版本号（`-ldflags "-X main.version=..."`）
+- [x] `/api/version` 返回版本信息
+- [x] 前端展示当前版本
 
 ### 6.3 Single-Port Deployment
-- [ ] 前端嵌入 + 代理 API 共用同一端口
-- [ ] 通过环境变量 `SINGLE_PORT=true` 切换
-- [ ] 管理后台路由 `/admin/` 与代理路由 `/v1/` 共存
+- [x] 前端嵌入 + 代理 API 共用同一端口
+- [x] 通过环境变量 `SINGLE_PORT=true` 切换
+- [x] 管理后台路由 `/admin/` 与代理路由 `/v1/` 共存
 
 ### 6.4 Docker Support
-- [ ] `Dockerfile` 多阶段构建
-- [ ] `docker-compose.yml`（含 SQLite 持久化）
+- [x] `Dockerfile` 多阶段构建
+- [x] `docker-compose.yml`（含 SQLite 持久化）
 
 ### 6.5 i18n Internationalization
-- [ ] 前端多语言支持（中/英）
+- [x] 前端多语言支持（中/英）
 - [ ] 后端错误消息国际化
 
 ## Priority Order
