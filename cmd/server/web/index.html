@@ -712,6 +712,10 @@
             </div>
         </nav>
         <div class="sidebar-footer">
+            <div class="dark-toggle" @click="toggleLang">
+                <span>&#127760;</span>
+                <span>{{ lang === 'zh' ? 'English' : '中文' }}</span>
+            </div>
             <div class="dark-toggle" @click="toggleDark">
                 <span>{{ isDark ? '&#9728;' : '&#9790;' }}</span>
                 <span>{{ isDark ? '浅色模式' : '深色模式' }}</span>
@@ -1158,6 +1162,58 @@ createApp({
         let chartInstance = null;
         let toastId = 0;
 
+        // i18n
+        const lang = ref(localStorage.getItem('lang') || 'zh');
+        const i18n = {
+            zh: {
+                dashboard: '仪表盘', channels: '渠道管理', routes: '模型路由', traffic: '流量统计', logs: '请求日志',
+                addChannel: '+ 添加渠道', addRoute: '+ 添加路由', edit: '编辑', delete: '删除',
+                name: '名称', type: '类型', model: '模型', priority: '优先级', weight: '权重',
+                enabled: '启用', actions: '操作', save: '保存', cancel: '取消',
+                baseUrl: 'Base URL', apiKey: 'API Key', maxRetries: '最大重试', timeout: '超时(秒)',
+                supportedModels: '支持的模型（逗号分隔，留空表示不限制）', proxyUrl: '代理 URL（可选）',
+                proxyType: '代理类型', customHeaders: '自定义请求头 (JSON)', promotionStart: '促销开始时间',
+                promotionEnd: '促销结束时间', none: '无', status: '状态', latency: '延迟',
+                totalRequests: '总请求数', successRate: '成功率', avgLatency: '平均延迟',
+                testConnectivity: '测试连通性', capabilityTest: '能力测试', manageKeys: '管理 Keys',
+                resume: '恢复', channelCreated: '渠道已创建', channelUpdated: '渠道已更新',
+                channelDeleted: '渠道已删除', deleteConfirm: '确定删除此渠道？',
+                pingSuccess: 'Ping 成功', pingFail: 'Ping 失败', channelResumed: '渠道已恢复',
+                keyAdded: 'Key 已添加', keyDeleted: 'Key 已删除', deleteKeyConfirm: '确定删除此 Key？',
+                login: '登录', logout: '退出登录', username: '用户名', password: '密码',
+                loginSuccess: '登录成功', loginFail: '登录失败', darkMode: '深色模式',
+                lightMode: '浅色模式', lang: '语言', zh: '中文', en: 'English'
+            },
+            en: {
+                dashboard: 'Dashboard', channels: 'Channels', routes: 'Model Routes', traffic: 'Traffic', logs: 'Request Logs',
+                addChannel: '+ Add Channel', addRoute: '+ Add Route', edit: 'Edit', delete: 'Delete',
+                name: 'Name', type: 'Type', model: 'Model', priority: 'Priority', weight: 'Weight',
+                enabled: 'Enabled', actions: 'Actions', save: 'Save', cancel: 'Cancel',
+                baseUrl: 'Base URL', apiKey: 'API Key', maxRetries: 'Max Retries', timeout: 'Timeout(s)',
+                supportedModels: 'Supported Models (comma-separated, empty for no limit)', proxyUrl: 'Proxy URL (optional)',
+                proxyType: 'Proxy Type', customHeaders: 'Custom Headers (JSON)', promotionStart: 'Promotion Start',
+                promotionEnd: 'Promotion End', none: 'None', status: 'Status', latency: 'Latency',
+                totalRequests: 'Total Requests', successRate: 'Success Rate', avgLatency: 'Avg Latency',
+                testConnectivity: 'Test Connectivity', capabilityTest: 'Capability Test', manageKeys: 'Manage Keys',
+                resume: 'Resume', channelCreated: 'Channel Created', channelUpdated: 'Channel Updated',
+                channelDeleted: 'Channel Deleted', deleteConfirm: 'Are you sure to delete this channel?',
+                pingSuccess: 'Ping Success', pingFail: 'Ping Failed', channelResumed: 'Channel Resumed',
+                keyAdded: 'Key Added', keyDeleted: 'Key Deleted', deleteKeyConfirm: 'Are you sure to delete this Key?',
+                login: 'Login', logout: 'Logout', username: 'Username', password: 'Password',
+                loginSuccess: 'Login Success', loginFail: 'Login Failed', darkMode: 'Dark Mode',
+                lightMode: 'Light Mode', lang: 'Language', zh: '中文', en: 'English'
+            }
+        };
+
+        const t = (key) => {
+            return i18n[lang.value]?.[key] || i18n.zh[key] || key;
+        };
+
+        const toggleLang = () => {
+            lang.value = lang.value === 'zh' ? 'en' : 'zh';
+            localStorage.setItem('lang', lang.value);
+        };
+
         const isLoggedIn = ref(false);
         const loginForm = reactive({ username: '', password: '' });
         const loginError = ref('');
@@ -1561,7 +1617,7 @@ createApp({
             pingChannel, resumeChannel, testChannel, manageKeys, loadKeys, addKey, updateKeyStatus, deleteKey,
             showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
             getChannelName, successRate, formatTime, typeName, typeDot, lbName,
-            toggleDark, toast,
+            toggleDark, toggleLang, lang, t, toast,
             isLoggedIn, loginForm, loginError, loggingIn, doLogin, doLogout
         };
     }
