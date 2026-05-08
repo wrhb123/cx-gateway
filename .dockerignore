@@ -1,0 +1,29 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+ai-proxy-gateway
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Documentation
+*.md
+docs/
+.monkeycode/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test data
+data/
+*.db
+
+# CI/CD
+.github/
