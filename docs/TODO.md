@@ -95,16 +95,18 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 ## 5. Observability Depth
 
 ### 5.1 Metrics Isolation by Protocol
-- [ ] 指标按协议类型（openai/claude/gemini）隔离统计
-- [ ] 前端支持按协议切换指标视图
+- [x] 指标按协议类型（openai/claude/gemini）隔离统计
+- [x] 前端支持按协议切换指标视图
+- [x] `GET /api/stats/protocol` 返回各协议聚合统计
 
 ### 5.2 Key-Level Metrics
 - [x] Key 级别的请求数、成功率、延迟统计
 - [x] `channel_keys` 表关联指标
 
 ### 5.3 Model-Level Historical Stats
-- [ ] 按模型维度的历史统计
-- [ ] 新增 `model_stats` 表或扩展 `channel_stats`
+- [x] 按模型维度的历史统计
+- [x] `GET /api/stats/models` 返回各模型的请求统计和 token 使用量
+- [x] 前端模型统计表格展示
 
 ### 5.4 Request Log Enhancement
 - [x] 日志新增 `source`（客户端 IP）、`interface`（代理/管理）、`key_mask`（脱敏 key 前缀）字段
@@ -134,7 +136,8 @@ Reference: [BenedictKing/ccx](https://github.com/BenedictKing/ccx)
 
 ### 6.5 i18n Internationalization
 - [x] 前端多语言支持（中/英）
-- [ ] 后端错误消息国际化
+- [x] 后端错误消息国际化（`internal/i18n` 包，支持 Accept-Language 头）
+- [x] 认证中间件、登录接口等关键错误消息已国际化
 
 ## Priority Order
 

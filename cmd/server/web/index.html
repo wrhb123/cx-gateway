@@ -1239,6 +1239,53 @@
                 </table>
                 <div v-else class="empty">暂无流量数据</div>
             </div>
+
+            <div class="card" style="margin-top:16px;">
+                <div class="card-header">
+                    <h2>协议类型统计</h2>
+                    <button class="btn btn-ghost btn-sm" @click="loadProtocolStats">&#8635; 刷新</button>
+                </div>
+                <table v-if="protocolStats.length">
+                    <thead>
+                        <tr><th>协议类型</th><th>渠道数</th><th>总请求</th><th>成功</th><th>失败</th><th>平均延迟</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="s in protocolStats" :key="s.protocol">
+                            <td><span class="badge badge-info">{{ s.protocol }}</span></td>
+                            <td>{{ s.channel_count }}</td>
+                            <td>{{ s.total_requests }}</td>
+                            <td style="color:var(--success);">{{ s.success_count }}</td>
+                            <td style="color:var(--danger);">{{ s.failure_count }}</td>
+                            <td>{{ s.avg_latency_ms }}ms</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">暂无协议统计数据</div>
+            </div>
+
+            <div class="card" style="margin-top:16px;">
+                <div class="card-header">
+                    <h2>模型维度统计</h2>
+                    <button class="btn btn-ghost btn-sm" @click="loadModelStats">&#8635; 刷新</button>
+                </div>
+                <table v-if="modelStats.length">
+                    <thead>
+                        <tr><th>模型</th><th>总请求</th><th>成功</th><th>失败</th><th>平均延迟</th><th>Token 使用量</th><th>最后使用</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="s in modelStats" :key="s.model">
+                            <td><span class="code">{{ s.model }}</span></td>
+                            <td>{{ s.total_requests }}</td>
+                            <td style="color:var(--success);">{{ s.success_count }}</td>
+                            <td style="color:var(--danger);">{{ s.failure_count }}</td>
+                            <td>{{ s.avg_latency_ms }}ms</td>
+                            <td style="font-size:12px;color:var(--text-secondary);">{{ s.total_tokens || '-' }}</td>
+                            <td style="font-size:12px;color:var(--text-secondary);">{{ formatTime(s.last_used) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-else class="empty">暂无模型统计数据</div>
+            </div>
         </div>
 
         <div v-if="activeTab==='logs'">
@@ -1375,6 +1422,8 @@ createApp({
         const routes = ref([]);
         const stats = ref([]);
         const trafficStats = ref([]);
+        const protocolStats = ref([]);
+        const modelStats = ref([]);
         const logs = ref([]);
         const recentLogs = ref([]);
         const showModal = ref(false);
@@ -1523,6 +1572,22 @@ createApp({
                 logs.value = await fetch('/api/logs?limit=100&offset=0').then(r => r.json()) || [];
             } catch (e) {
                 toast('加载日志失败: ' + e.message, 'error');
+            }
+        }
+
+        async function loadProtocolStats() {
+            try {
+                protocolStats.value = await fetch('/api/stats/protocol').then(r => r.json()) || [];
+            } catch (e) {
+                toast('加载协议统计失败', 'error');
+            }
+        }
+
+        async function loadModelStats() {
+            try {
+                modelStats.value = await fetch('/api/stats/models').then(r => r.json()) || [];
+            } catch (e) {
+                toast('加载模型统计失败', 'error');
             }
         }
 
@@ -1869,6 +1934,13 @@ createApp({
 
         watch(trafficChartType, updateChart);
 
+        watch(activeTab, (newTab) => {
+            if (newTab === 'traffic') {
+                loadProtocolStats();
+                loadModelStats();
+            }
+        });
+
         async function checkAuth() {
             try {
                 const res = await fetch('/api/auth/me');
@@ -1928,14 +2000,15 @@ createApp({
         });
 
         return {
-            activeTab, channels, routes, stats, trafficStats, logs, recentLogs,
+            activeTab, channels, routes, stats, trafficStats, protocolStats, modelStats, logs, recentLogs,
             showModal, modalType, modalTitle, form, toasts, isDark, showKey, pinging,
             trafficChart, trafficChartType, channelKeys, newKeyForm,
             dragIndex, dragOverIndex, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd,
             channelDetail, channelStats, channelLogs, detailTab, showChannelDetail,
             pageTitle, pageDesc, activeChannels, totalRequests,
             trafficTotal, trafficSuccess, trafficFail, trafficAvgLatency,
-            loadData, loadLogs, showAddChannel, editChannel, toggleChannel, deleteChannel,
+            loadData, loadLogs, loadProtocolStats, loadModelStats,
+            showAddChannel, editChannel, toggleChannel, deleteChannel,
             pingChannel, resumeChannel, testChannel, manageKeys, loadKeys, addKey, updateKeyStatus, deleteKey,
             showAddRoute, toggleRoute, deleteRoute, saveForm, closeModal,
             getChannelName, successRate, formatTime, typeName, typeDot, lbName,

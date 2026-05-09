@@ -181,6 +181,90 @@ func (db *Database) BatchUpdatePriorities(updates []struct{ ID int64; Priority i
 	return tx.Commit()
 }
 
+// GetStatsByProtocol 按协议类型获取统计数据
+func (db *Database) GetStatsByProtocol() ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT c.type,
+			COUNT(DISTINCT cs.channel_id) as channel_count,
+			SUM(cs.total_requests) as total_requests,
+			SUM(cs.success_count) as success_count,
+			SUM(cs.failure_count) as failure_count,
+			CAST(AVG(cs.avg_latency_ms) AS INTEGER) as avg_latency_ms
+		FROM channel_stats cs
+		LEFT JOIN channels c ON cs.channel_id = c.id
+		WHERE c.type IS NOT NULL
+		GROUP BY c.type
+		ORDER BY total_requests DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var pType string
+		var chCount, totalReqs, successCount, failureCount, avgLatency int64
+		if err := rows.Scan(&pType, &chCount, &totalReqs, &successCount, &failureCount, &avgLatency); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"protocol":       pType,
+			"channel_count":  chCount,
+			"total_requests": totalReqs,
+			"success_count":  successCount,
+			"failure_count":  failureCount,
+			"avg_latency_ms": avgLatency,
+		})
+	}
+	return results, nil
+}
+
+// GetModelStats 获取模型维度的历史统计
+func (db *Database) GetModelStats() ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(`
+		SELECT model,
+			COUNT(*) as total_requests,
+			SUM(CASE WHEN status >= 200 AND status < 400 THEN 1 ELSE 0 END) as success_count,
+			SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) as failure_count,
+			CAST(AVG(latency_ms) AS INTEGER) as avg_latency_ms,
+			SUM(prompt_tokens) as total_prompt_tokens,
+			SUM(completion_tokens) as total_completion_tokens,
+			SUM(total_tokens) as total_tokens,
+			MAX(created_at) as last_used
+		FROM request_logs
+		GROUP BY model
+		ORDER BY total_requests DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var model string
+		var totalReqs, successCount, failureCount, avgLatency int64
+		var promptTokens, completionTokens, totalTokens sql.NullInt64
+		var lastUsed sql.NullString
+		if err := rows.Scan(&model, &totalReqs, &successCount, &failureCount, &avgLatency, &promptTokens, &completionTokens, &totalTokens, &lastUsed); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"model":                model,
+			"total_requests":       totalReqs,
+			"success_count":        successCount,
+			"failure_count":        failureCount,
+			"avg_latency_ms":       avgLatency,
+			"total_prompt_tokens":  promptTokens.Int64,
+			"total_completion_tokens": completionTokens.Int64,
+			"total_tokens":         totalTokens.Int64,
+			"last_used":            lastUsed.String,
+		})
+	}
+	return results, nil
+}
+
 // DeleteChannel 删除渠道
 func (db *Database) DeleteChannel(id int64) error {
 	_, err := db.Conn.Exec("DELETE FROM channels WHERE id=?", id)

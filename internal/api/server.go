@@ -13,6 +13,7 @@ import (
 	"ai-proxy-gateway/internal/channel"
 	"ai-proxy-gateway/internal/db"
 	"ai-proxy-gateway/internal/failover"
+	"ai-proxy-gateway/internal/i18n"
 	"ai-proxy-gateway/internal/models"
 	"ai-proxy-gateway/internal/router"
 	"ai-proxy-gateway/internal/token"
@@ -122,7 +123,7 @@ func (s *Server) proxyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
 				"error":   "unauthorized",
-				"message": "API key is required. Pass it via Authorization: Bearer <key> or X-API-Key header",
+				"message": i18n.T(getLang(r), "login_required"),
 			})
 			return
 		}
@@ -132,7 +133,7 @@ func (s *Server) proxyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(http.StatusForbidden)
 			json.NewEncoder(w).Encode(map[string]string{
 				"error":   "forbidden",
-				"message": "Invalid API key",
+				"message": i18n.T(getLang(r), "forbidden"),
 			})
 			return
 		}
@@ -308,6 +309,8 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/routes/", s.authMiddleware(s.handleRouteByID))
 	mux.HandleFunc("/api/stats", s.authMiddleware(s.handleStats))
 	mux.HandleFunc("/api/stats/traffic", s.authMiddleware(s.handleTrafficStats))
+	mux.HandleFunc("/api/stats/protocol", s.authMiddleware(s.handleStatsByProtocol))
+	mux.HandleFunc("/api/stats/models", s.authMiddleware(s.handleModelStats))
 	mux.HandleFunc("/api/logs", s.authMiddleware(s.handleLogs))
 	mux.HandleFunc("/api/reload", s.authMiddleware(s.handleReload))
 	mux.HandleFunc("/api/channels/{id}/ping", s.authMiddleware(s.handlePingChannel))
@@ -320,9 +323,22 @@ func (s *Server) RegisterAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/version", s.authMiddleware(s.handleVersion))
 }
 
+// getLang 从请求中获取语言偏好
+func getLang(r *http.Request) string {
+	// 优先从 Accept-Language header 获取
+	lang := r.Header.Get("Accept-Language")
+	if lang != "" {
+		if strings.HasPrefix(lang, "zh") {
+			return "zh"
+		}
+	}
+	return "en"
+}
+
 // authMiddleware 管理端认证中间件
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		lang := getLang(r)
 		cookie, err := r.Cookie("admin_session")
 		if err != nil {
 			// 尝试从 Header 获取 token（用于 API 调用）
@@ -332,7 +348,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{
 					"error":   "unauthorized",
-					"message": "Login required",
+					"message": i18n.T(lang, "login_required"),
 				})
 				return
 			}
@@ -342,7 +358,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{
 					"error":   "unauthorized",
-					"message": err.Error(),
+					"message": i18n.T(lang, "invalid_credentials"),
 				})
 				return
 			}
@@ -366,7 +382,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
 				"error":   "unauthorized",
-				"message": err.Error(),
+				"message": i18n.T(lang, "unauthorized"),
 			})
 			return
 		}
@@ -379,7 +395,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // handleLogin 管理员登录
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, i18n.T(getLang(r), "method_not_allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -390,14 +406,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		json.NewEncoder(w).Encode(map[string]string{"error": i18n.T(getLang(r), "bad_request")})
 		return
 	}
 
 	if req.Username == "" || req.Password == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "username and password are required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": i18n.T(getLang(r), "invalid_credentials")})
 		return
 	}
 
@@ -405,7 +421,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": i18n.T(getLang(r), "invalid_credentials")})
 		return
 	}
 
@@ -759,6 +775,32 @@ func (s *Server) handleTrafficStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleStatsByProtocol 返回按协议类型隔离的统计数据
+func (s *Server) handleStatsByProtocol(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.db.GetStatsByProtocol()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []map[string]interface{}{}
+	}
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleModelStats 返回按模型维度的历史统计
+func (s *Server) handleModelStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.db.GetModelStats()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []map[string]interface{}{}
 	}
 	json.NewEncoder(w).Encode(stats)
 }
